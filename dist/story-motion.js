@@ -7,6 +7,31 @@ const TUCK={...idlePose(),head:[11,-74],neck:[7,-60],hip:[-3,-37],
   frontShoulder:[4,-57],frontElbow:[18,-63],frontHand:[26,-70],
   backKnee:[-15,-32],backFoot:[-27,-25],frontKnee:[16,-38],frontFoot:[7,-24]};
 export function jumpPose(base,p){return blendPose(base,TUCK,Math.sin(Math.PI*p)**.65);}
+// The boost reads as a second impulse: kick down, pull the knees up, then reach for ground.
+const AIR_KICK={...TUCK,head:[15,-78],neck:[9,-64],hip:[-2,-38],
+  backShoulder:[7,-61],backElbow:[-10,-54],backHand:[-25,-46],
+  frontShoulder:[8,-61],frontElbow:[20,-64],frontHand:[29,-77],
+  backKnee:[-17,-22],backFoot:[-29,-5],frontKnee:[20,-40],frontFoot:[8,-24]};
+const AIR_TUCK={...AIR_KICK,head:[15,-75],neck:[9,-61],hip:[-5,-37],
+  backElbow:[-12,-49],backHand:[-27,-40],frontElbow:[23,-56],frontHand:[29,-67],
+  backKnee:[-24,-32],backFoot:[-32,-20],frontKnee:[21,-45],frontFoot:[5,-31]};
+const AIR_REACH={...TUCK,head:[9,-74],neck:[4,-60],hip:[-3,-36],
+  backElbow:[-10,-43],backHand:[-19,-28],frontElbow:[17,-46],frontHand:[25,-38],
+  backKnee:[-13,-22],backFoot:[-19,-9],frontKnee:[14,-21],frontFoot:[21,-5]};
+export function jumpLandingPose(base,weight=1){
+  const compressed={...base};
+  for(const key of Object.keys(base)){
+    const [x,y]=base[key];
+    compressed[key]=key.endsWith('Foot')?[x,y]:key.endsWith('Knee')?[x+(key.startsWith('front')?3:-3),y+2]:[x+3,y+7];
+  }
+  return blendPose(base,compressed,weight);
+}
+export function doubleJumpPose(entry,p,rest=dragPose(idlePose())){
+  if(p<.16)return blendPose(entry,AIR_KICK,smooth(p/.16));
+  if(p<.42)return blendPose(AIR_KICK,AIR_TUCK,smooth((p-.16)/.26));
+  if(p<.82)return blendPose(AIR_TUCK,AIR_REACH,smooth((p-.42)/.4));
+  return blendPose(AIR_REACH,jumpLandingPose(rest),smooth((p-.82)/.18));
+}
 const GUARD={...idlePose(),head:[4,-70],neck:[2,-56],hip:[-3,-32],
   frontShoulder:[3,-54],frontElbow:[14,-43],frontHand:[21,-51],
   backShoulder:[0,-54],backElbow:[-13,-43],backHand:[-5,-35],

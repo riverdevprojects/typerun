@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {STORY,createTrack,sampleTrack,checkpoint} from '../dist/story.js';
 import {idlePose} from '../dist/motion.js';
-import {jumpPose,combatPose,swordAngle} from '../dist/story-motion.js';
+import {jumpPose,doubleJumpPose,jumpLandingPose,dragPose,combatPose,swordAngle} from '../dist/story-motion.js';
 import {EDGE_TIME,JUMP_WINDOW,checkJump,sampleEdge,sampleLeap,leapDuration,typingFlightRate,visibleWords} from '../dist/leap.js';
 const track=createTrack(word=>word.length*17);
 const near=(a,b)=>assert.ok(Math.abs(a-b)<.001,`${a} differs from ${b}`);
@@ -91,4 +91,18 @@ test('jump and attack poses have continuous starts, recoveries, and planted comb
     for(let p=0;p<=1;p+=.01){const pose=combatPose(p,action);assert.ok(Object.values(pose).flat().every(Number.isFinite));assert.ok(pose.frontFoot[1]<=-3&&pose.backFoot[1]<=-3);}
     for(const seam of [.28,.58]){const a=combatPose(seam-1e-7,action),b=combatPose(seam+1e-7,action);for(const k of Object.keys(a)){near(a[k][0],b[k][0]);near(a[k][1],b[k][1]);}}
   }
+});
+test('the second jump kicks, tucks, and lands continuously with planted landing feet',()=>{
+  const rest=dragPose(idlePose()),entry=jumpPose(rest,.2);
+  assert.deepEqual(doubleJumpPose(entry,0,rest),entry);
+  const end=doubleJumpPose(entry,1,rest),settled=jumpLandingPose(rest);
+  for(const k of Object.keys(end)){near(end[k][0],settled[k][0]);near(end[k][1],settled[k][1]);}
+  assert.ok(doubleJumpPose(entry,.42).frontFoot[1]<doubleJumpPose(entry,.16).frontFoot[1]);
+  for(const seam of [.16,.42,.82]){
+    const a=doubleJumpPose(entry,seam-1e-7),b=doubleJumpPose(entry,seam+1e-7);
+    for(const k of Object.keys(a)){near(a[k][0],b[k][0]);near(a[k][1],b[k][1]);}
+  }
+  for(let p=0;p<=1;p+=.01)assert.ok(Object.values(doubleJumpPose(entry,p)).flat().every(Number.isFinite));
+  const landing=jumpLandingPose(rest);assert.deepEqual(landing.frontFoot,rest.frontFoot);assert.deepEqual(landing.backFoot,rest.backFoot);
+  assert.deepEqual(jumpLandingPose(rest,0),rest);
 });

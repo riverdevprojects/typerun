@@ -19,6 +19,8 @@ One complete original story, 134 words in six scenes: ash woods, a broken crossi
 - Pause, help, restart, page visibility pause, optional synthesized sound, local personal best, mobile layout, and reduced motion are supported. Reduced motion removes jump arcs and ambient cycling; pause freezes all animation.
 - No backend, application libraries, raster art, or generated media are required. Everything in the story is drawn with canvas strokes.
 
+Double jumps have a distinct downward kick, compact midair tuck, sword follow-through, and a brief orange pressure ring and curved air trails. The runner reaches toward the next word and absorbs the landing with a short knee bend; this settling animation never blocks typing.
+
 ## Classic v1
 
 The header links to `v1.html`. It retains the eight original stories, continuous text terrain, common-typo trips, falls to the next story, and breathing idle. V1 is also preserved on the GitHub `main` branch; v2 work lives on `v2`.

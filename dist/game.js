@@ -1,7 +1,7 @@
 import {classifyWord,matchingPrefix} from './engine.js';
 import {idlePose,walkPose,runPose,runningBlend,strideLength,blendPose,tripPose,fallPose,landPose,risePose,drawFigure,advanceTravel,smooth} from './motion.js';
 import {STORY,createTrack,sampleTrack,checkpoint,clamp,lerp} from './story.js';
-import {dragPose,jumpPose,combatPose,swordAngle,drawSword,victoryPose} from './story-motion.js';
+import {dragPose,jumpPose,doubleJumpPose,jumpLandingPose,combatPose,swordAngle,drawSword,victoryPose} from './story-motion.js';
 import {paintScene,stroke,drawDragon,drawLantern} from './scenery.js';
 import {EDGE_TIME,checkJump,sampleEdge,sampleLeap,leapDuration,typingFlightRate,visibleWords} from './leap.js';
 const $=id=>document.getElementById(id),canvas=$('stage'),ctx=canvas.getContext('2d'),input=$('typing');
@@ -15,6 +15,7 @@ let timer=0,fallOrigin=null,checkpointIndex=0,accepted=0,correct=0,attempted=0,f
 let sound=false,audio=null,best=0,particles=[],lastStats=0,sceneKind='forest',previousKind='forest',sceneFade=1;
 let edgeOrigin=null,leapOrigin=null,jumpReady=false;
 let flightRate=1,landingFraction=0,deferredWord=null,deferredKeys=[],resumeBlend=1,resumePose=renderedPose;
+let landingAge=1;
 try{best=Number(localStorage.getItem('typerun-v2-best')||0)||0;}catch{}
 function expected(){return track.tokens[index]?.word||'';}
 function available(){return !paused&&['ready','playing','stumble','gap','leaping','recover'].includes(mode);}
@@ -55,6 +56,7 @@ function pressSpace(key){
 }
 function land(){
   progress=index+landingFraction;progressVelocity=0;mode='playing';timer=0;moveMix=0;pace=0;gaitMix=0;
+  landingAge=0;
   input.disabled=false;feedback('Keep going. Space finishes the word.');
   if(deferredWord!==null){
     const word=deferredWord,keys=deferredKeys;deferredWord=null;deferredKeys=[];
@@ -145,6 +147,7 @@ function reset(){
   renderedPose=idlePose();entryPose=renderedPose;sceneKind='forest';previousKind='forest';sceneFade=1;
   edgeOrigin=null;leapOrigin=null;jumpReady=false;
   flightRate=1;landingFraction=0;deferredWord=null;deferredKeys=[];resumeBlend=1;
+  landingAge=1;
   input.value='';input.disabled=false;$('start-hint').hidden=false;$('pause-overlay').hidden=true;$('ending-overlay').hidden=true;
   $('pause').innerHTML='<kbd>esc</kbd> pause';metadata();stats();status('A story waiting to wake');feedback('Start with “the”. Space finishes each word.');input.focus({preventScroll:true});
 }
@@ -178,7 +181,8 @@ function poseFor(sample){
   const travel=blendPose(walkPose(gait),runPose(gait,pace/150),gaitMix);
   let pose=dragPose(blendPose(idlePose(idleTime),travel,moveMix));
   if(mode==='gap'&&!reduced)pose=jumpPose(pose,Math.min(.5,sample.p));
-  if(mode==='leaping'&&!reduced)pose=blendPose(jumpPose(entryPose,sample.p),dragPose(idlePose(idleTime)),smooth((sample.p-.75)/.25));
+  if(mode==='leaping'&&!reduced)pose=doubleJumpPose(entryPose,sample.p,dragPose(idlePose(idleTime)));
+  if(mode==='playing'&&landingAge<.18&&!reduced)pose=jumpLandingPose(pose,1-smooth(landingAge/.18));
   if(sample.token.kind==='fight')pose=blendPose(pose,combatPose(sample.p,sample.token.action),smooth(sample.token.local===0?sample.p*4:1));
   if(sample.token.kind==='dawn')pose={...pose,frontElbow:[10,-51],frontHand:[19,-63]};
   if(mode==='stumble')pose=tripPose(entryPose,pose,timer/.82);
@@ -191,7 +195,26 @@ function poseFor(sample){
 function drawCharacter(sample){
   const x=sample.x-cameraX,y=sample.y-cameraY+floor;
   let pose=poseFor(sample);if(!paused)renderedPose=pose;else pose=renderedPose;
+  if(mode==='leaping'&&!reduced&&sample.p<.42){
+    // A broken pressure ring stays where the second jump kicked off, rather than following the feet.
+    const p=sample.p/.42,r=12+32*smooth(p),bx=leapOrigin.x-cameraX,by=leapOrigin.y-cameraY+floor-5;
+    ctx.save();ctx.globalAlpha=smooth(p/.15)*(1-p)*.8;
+    ctx.strokeStyle=orange;ctx.lineWidth=1.8;
+    for(const a of [.15,Math.PI+.15]){ctx.beginPath();ctx.ellipse(bx,by,r,r*.32,-.22,a,a+2.35);ctx.stroke();}
+    for(let i=0;i<3;i++){
+      const a=.7+i*.8,dx=Math.cos(a),dy=Math.sin(a);
+      stroke(ctx,[[bx+dx*(r+4),by+dy*(r*.35+4)],[bx+dx*(r+12),by+dy*(r*.35+12)]],orange,1.6);
+    }
+    ctx.restore();
+  }
   ctx.save();ctx.translate(x,y);const scale=width<550?.92:1.1;ctx.scale(scale,scale);
+  if(mode==='leaping'&&!reduced&&sample.p<.7){
+    const strength=Math.sin(Math.PI*clamp(sample.p/.7));
+    ctx.globalAlpha=strength*.5;ctx.strokeStyle=orange;ctx.lineWidth=1.6;ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(-44,-15);ctx.quadraticCurveTo(-39,-53,-12,-58);ctx.stroke();
+    ctx.globalAlpha=strength*.25;ctx.beginPath();ctx.moveTo(-51,-18);ctx.quadraticCurveTo(-47,-49,-27,-59);ctx.stroke();
+    ctx.globalAlpha=1;
+  }
   if(mode==='leaping'&&sample.token.superJump&&!reduced){
     ctx.globalAlpha=Math.sin(sample.p*Math.PI)*.55;
     for(let i=0;i<3;i++)stroke(ctx,[[-40-i*7,-58+i*17],[-80-i*13,-58+i*17]],orange,1.7);
@@ -216,7 +239,7 @@ function drawCharacter(sample){
 function frame(now){
   const realDt=Math.max(0,(now-(lastTime||now))/1000),dt=Math.min(realDt,.035);lastTime=now;
   if(!paused){
-    time+=dt;resumeBlend=Math.min(1,resumeBlend+dt/.14);if(started&&['playing','stumble','gap','leaping'].includes(mode))elapsed+=realDt;
+    time+=dt;landingAge+=dt;resumeBlend=Math.min(1,resumeBlend+dt/.14);if(started&&['playing','stumble','gap','leaping'].includes(mode))elapsed+=realDt;
     if(mode==='gap'){
       const before=currentSample();
       timer+=realDt;
