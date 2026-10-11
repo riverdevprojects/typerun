@@ -1,4 +1,5 @@
 import { STORIES, classifyWord, matchingPrefix, layoutWords } from './engine.js';
+import {idlePose,runPose,blendPose,tripPose,fallPose,landPose,risePose,drawFigure,advanceTravel} from './motion.js';
 
 const $ = id => document.getElementById(id);
 const canvas=$('stage'), ctx=canvas.getContext('2d'), input=$('typing');
@@ -11,6 +12,7 @@ let runnerX=95, runnerY=floorY, targetX=95, animationTime=0, fallFrom=0;
 let wordsTraveled=0, falls=0, attemptedChars=0, correctChars=0, elapsed=0;
 let best=0, started=false, soundEnabled=false, audio=null, particles=[];
 let storyComplete=false, lastStats=0, feedbackUntil=0, mismatch=false;
+let runWeight=0,motionTime=0,renderedPose=idlePose(0),transitionPose=renderedPose;
 try { best=Number(localStorage.getItem('typerun-best')||0)||0; } catch {}
 const GAP=19, LEVEL_HEIGHT=365;
 const mix=(a,b,t)=>a+(b-a)*t;
@@ -86,9 +88,7 @@ function onInput(){
   targetX=wordX()+prefix*charWidth;
   mismatch=prefix<typed.length;
   if(growing){
-    const now=performance.now(), interval=lastKey?now-lastKey:130;
-    velocity=mix(velocity,clamp(charWidth/(Math.max(interval,45)/1000),50,550),.4);
-    lastKey=now;
+    lastKey=performance.now();
     if(!mismatch)tone(350+(wordIndex%6)*35,.035,'sine',.012);
   }
   if(mismatch)feedback('Finish the word, or use backspace to fix it.','warn');
@@ -114,6 +114,7 @@ function commit(){
   }
   targetX=wordX();lastKey=performance.now();input.placeholder=expected();
   if(result==='stumble'){
+    transitionPose=renderedPose;
     mode='stumble';animationTime=0;feedback('A little typo. A little trip. Keep going!','warn',1600);
     tone(180,.13,'triangle',.04);status('Watch your step');
   }else if(mode!=='stumble'){
@@ -122,6 +123,7 @@ function commit(){
   stats();
 }
 function beginTransition(complete){
+  transitionPose=renderedPose;
   storyComplete=complete;mode='falling';animationTime=0;fallFrom=floorY+level*LEVEL_HEIGHT;
   levels.push(makeLevel(level+1,runnerX));input.disabled=true;velocity=0;
   status(complete?'A story well traveled':'A change of scenery');
@@ -135,6 +137,7 @@ function finishTransition(){
   level++;wordIndex=0;typed='';input.value='';mismatch=false;
   targetX=wordX();runnerX=targetX;runnerY=floorY+level*LEVEL_HEIGHT;
   mode='playing';animationTime=0;storyComplete=false;metadata();input.disabled=false;
+  velocity=0;runWeight=0;
   feedback('A fresh story. Take your first step.','',2000);status('Back on your feet');
   if(!paused&&!$('help-dialog').open)input.focus({preventScroll:true});
 }
@@ -143,6 +146,7 @@ function reset(){
   wordsTraveled=0;falls=0;correctChars=0;attemptedChars=0;elapsed=0;
   cameraX=0;cameraY=0;runnerX=95;runnerY=floorY;targetX=95;
   gait=0;velocity=0;lastKey=0;particles=[];animationTime=0;storyComplete=false;mismatch=false;
+  runWeight=0;motionTime=0;renderedPose=idlePose(0);transitionPose=renderedPose;
   levels=[makeLevel(0)];input.value='';input.disabled=false;
   $('pause-overlay').hidden=true;$('start-hint').style.opacity='1';
   $('pause').innerHTML='<kbd>esc</kbd> pause';
@@ -162,49 +166,22 @@ function line(points,color=orange,weight=4.6){
   ctx.strokeStyle=color;ctx.lineWidth=weight;ctx.lineCap='round';ctx.lineJoin='round';
   ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.stroke();
 }
-function limb(root,end,bend,length){
-  const dx=end[0]-root[0],dy=end[1]-root[1],distance=Math.hypot(dx,dy);
-  const half=distance/2, offset=Math.sqrt(Math.max(0,length*length-half*half));
-  const joint=[(root[0]+end[0])/2-dy/Math.max(distance,1)*offset*bend,(root[1]+end[1])/2+dx/Math.max(distance,1)*offset*bend];
-  line([root,joint,end]);
-}
-function head(x,y,r=10){ctx.strokeStyle=orange;ctx.lineWidth=4.4;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.stroke();}
-function drawRunner(now){
+function drawRunner(){
+  const base=blendPose(idlePose(motionTime),runPose(gait,Math.abs(velocity)/260),runWeight);
+  let pose=base;
+  if(mode==='stumble')pose=tripPose(transitionPose,base,animationTime/.82);
+  else if(mode==='falling')pose=fallPose(transitionPose,animationTime/(reducedMotion?.4:.8),reducedMotion);
+  else if(mode==='splat')pose=landPose(transitionPose,animationTime/.32,storyComplete);
+  else if(mode==='rise')pose=risePose(animationTime/.72,motionTime,storyComplete);
+  if(!paused)renderedPose=pose;
   ctx.save();ctx.translate(runnerX-cameraX,runnerY-cameraY);
   const scale=width<550?.87:1;ctx.scale(scale,scale);
-  ctx.fillStyle='#e9ede4';ctx.beginPath();ctx.ellipse(0,7,mode==='splat'?34:19,3,0,0,Math.PI*2);ctx.fill();
-  if(mode==='splat'){
-    const spring=Math.sin(Math.min(animationTime/.32,1)*Math.PI)*2;
-    line([[-32,-5],[-9,-7],[8,-5],[26,-6]]);head(31,-9-spring,8);
-    line([[-9,-7],[-18,-12],[-27,-9]]);line([[8,-5],[15,-14],[23,-12]]);
-  }else if(mode==='rise'){
-    const p=clamp(animationTime/.48,0,1);ctx.translate(0,0);ctx.rotate((1-p)*-.9);
-    const hip=[-7*(1-p),-mix(16,32,p)], shoulder=[mix(4,1,p),-mix(29,53,p)];
-    head(shoulder[0],shoulder[1]-15);line([shoulder,hip]);
-    limb(hip,[-15,0],-1,22);limb(hip,[13,0],1,22);
-    limb(shoulder,[mix(24,15,p),-mix(6,30,p)],-1,17);limb(shoulder,[-15,-mix(10,30,p)],1,17);
-  }else if(mode==='falling'){
-    const t=animationTime;ctx.rotate(reducedMotion?0:Math.sin(t*7)*.28+t*.7);
-    head(0,-65);line([[0,-51],[-3,-31]]);
-    line([[0,-48],[-18,-58],[-26,-75]]);line([[0,-48],[17,-62],[25,-72]]);
-    line([[-3,-31],[-22,-24],[-26,-6]]);line([[-3,-31],[15,-28],[27,-13]]);
-    if(!reducedMotion){line([[-42,-80],[-44,-59]],'#e4e9df',1);line([[39,-59],[40,-38]],'#e4e9df',1);}
-  }else{
-    const moving=!paused&&now-lastKey<250&&velocity>20;
-    const stride=moving&&!reducedMotion?Math.sin(gait):0;
-    let lean=moving?.15:0,bob=moving?Math.abs(Math.cos(gait))*2:0;
-    if(mode==='stumble'){
-      const p=animationTime/.7;lean+=Math.sin(p*Math.PI)*.8;bob+=Math.sin(p*Math.PI)*9;
-    }
-    ctx.rotate(lean);const hip=[0,-32+bob], shoulder=[2,-53+bob];
-    // Hollow head, continuous torso, and bent joints give a readable silhouette.
-    head(3,-67+bob);line([shoulder,hip]);
-    const footA=[moving?-stride*23:-11, -Math.max(0,stride)*11];
-    const footB=[moving?stride*23:10, -Math.max(0,-stride)*11];
-    limb(hip,footA,-1,21);limb(hip,footB,-1,21);
-    const armA=[shoulder[0]+(moving?stride*19:14),-34+bob-Math.max(0,stride)*11];
-    const armB=[shoulder[0]-(moving?stride*19:12),-34+bob-Math.max(0,-stride)*11];
-    limb(shoulder,armA,1,16);limb(shoulder,armB,-1,16);
+  drawFigure(ctx,paused?renderedPose:pose,orange);
+  // A short impact burst stays above the type. There is no oval or platform underfoot.
+  if(mode==='splat'&&animationTime<.2&&!reducedMotion){
+    const p=animationTime/.2;ctx.globalAlpha=(1-p)*.35;
+    for(const direction of [-1,1])line([[direction*(26+p*10),-7],[direction*(31+p*16),-10-p*3]],orange,1.5);
+    ctx.globalAlpha=1;
   }
   ctx.restore();
 }
@@ -240,22 +217,26 @@ function drawStories(){
 function frame(now){
   const dt=Math.min((now-(lastTime||now))/1000,.04);lastTime=now;
   if(!paused){
+    motionTime+=dt;
     if(started&&['playing','stumble'].includes(mode))elapsed+=dt;
     if(mode==='stumble'){
-      animationTime+=dt;if(animationTime>.7){mode='playing';animationTime=0;status('Finding your flow');}
+      animationTime+=dt;if(animationTime>.82){mode='playing';animationTime=0;status('Finding your flow');}
     }
     if(mode==='falling'){
       animationTime+=dt;const duration=reducedMotion?.4:.8, p=clamp(animationTime/duration,0,1);
       runnerY=fallFrom+LEVEL_HEIGHT*p*p-(storyComplete&&!reducedMotion?Math.sin(p*Math.PI)*65:0);
-      if(p>=1){mode='splat';animationTime=0;tone(60,.14,'triangle',.07);}
+      if(p>=1){transitionPose=fallPose(transitionPose,1,reducedMotion);mode='splat';animationTime=0;runWeight=0;tone(60,.14,'triangle',.07);}
     }else if(mode==='splat'){
       animationTime+=dt;if(animationTime>.32){mode='rise';animationTime=0;}
     }else if(mode==='rise'){
-      animationTime+=dt;if(animationTime>.48)finishTransition();
+      animationTime+=dt;if(animationTime>.72)finishTransition();
     }else{
-      runnerX=mix(runnerX,targetX,ease(18,dt));runnerY=floorY+level*LEVEL_HEIGHT;
-      if(now-lastKey>180)velocity=mix(velocity,0,ease(22,dt));
-      if(now-lastKey<250&&velocity>20)gait+=velocity/48*dt;
+      const previousX=runnerX,travel=advanceTravel(runnerX,velocity,targetX,dt);
+      runnerX=travel.position;velocity=travel.velocity;runnerY=floorY+level*LEVEL_HEIGHT;
+      if(!reducedMotion)gait+=Math.abs(runnerX-previousX)/104*Math.PI*2;
+      const weight=reducedMotion?0:clamp(Math.abs(velocity)/70,0,1);
+      runWeight=mix(runWeight,weight,ease(weight>runWeight?14:10,dt));
+      if(runWeight<.001)runWeight=0;
     }
     const cx=Math.max(0,runnerX-width*.29);
     cameraX=mix(cameraX,cx,ease(8,dt));
@@ -298,3 +279,4 @@ $('sound').addEventListener('click',()=>{
 new ResizeObserver(size).observe(canvas);
 size();levels=[makeLevel(0)];metadata();stats();requestAnimationFrame(frame);
 document.fonts.ready.then(size);
+

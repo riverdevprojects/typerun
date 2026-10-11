@@ -4,7 +4,7 @@ A browser typing game: your keystrokes carry an orange stick figure across the w
 
 ## Run locally
 
-Run `npm run dev`, then open http://127.0.0.1:5173. No installation or build step is needed. Run `npm test` to verify word classification and text layout.
+Run `node preview.mjs`, then open http://127.0.0.1:5173. No installation or build step is needed. Run `node --test` to verify word classification, text layout, and animation continuity. The equivalent npm scripts are available when npm is installed.
 
 ## V1 behavior
 
@@ -19,6 +19,8 @@ Run `npm run dev`, then open http://127.0.0.1:5173. No installation or build ste
 
 ## Files
 
-`dist/` is the deployable static app. `engine.js` contains stories, common-typo classification, and word layout. `game.js` owns input, state transitions, animation, camera, sound, and stats. No external application libraries are needed; web fonts have local fallbacks.
+`dist/` is the deployable static app. `engine.js` contains stories, common-typo classification, and word layout. `game.js` owns input, state transitions, camera, sound, and stats. `motion.js` contains the joint poses, interpolated run cycle, trip/fall/landing/get-up transitions, and critically damped travel. No external application libraries are needed; web fonts have local fallbacks.
+
+The character has a relaxed idle with breathing and separated arms. Foot travel drives the gait, so animation speed follows actual movement. Running and standing blend gradually. Mistake animations start from the displayed pose, and getting up returns continuously to idle. Feet stay above the text; no shadow or platform is drawn over the letters.
 
 Word mistakes are classified on submission to distinguish a common typo such as `teh` from a substantial error. Capitalization is flexible; punctuation must match. Accuracy compares submitted character positions, including errors on failed words. Speed uses accepted words over elapsed play time, excluding explicit pauses and fall animations.
