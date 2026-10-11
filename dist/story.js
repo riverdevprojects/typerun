@@ -41,7 +41,7 @@ export function createTrack(measure,gap=22){
       y-=(scene.climb||0)/(stop>=0?stop:words.length);
       const jumpType=punctuationJump(prev?.word||''),jump=!!jumpType;
       if(number)y-=82;
-      x+=jump?(jumpType==='double'?150:75):gap;
+      x+=jump?(jumpType==='double'?48:75):gap;
       tokens.push({word,width,x,endX:x+width,y,chapter,local,kind:scene.kind,jump,jumpType,number,
         fromX:prev?.endX??x,fromY:prev?.y??y,arc:jumpType==='double'?110:65});
       x+=width;

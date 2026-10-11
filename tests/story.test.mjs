@@ -21,7 +21,7 @@ test('only punctuation creates jumps and wide gaps; numbers and plain words stay
   for(let i=1;i<track.total;i++){
     const t=track.tokens[i],previous=track.tokens[i-1];assert.equal(t.jumpType,punctuationJump(previous.word));
     if(t.kind==='fight'||t.stationary)continue;
-    assert.equal(t.x-previous.endX,t.jumpType==='double'?150:t.jumpType==='single'?75:22);
+    assert.equal(t.x-previous.endX,t.jumpType==='double'?48:t.jumpType==='single'?75:22);
     if(!t.jump){const before=sampleTrack(track,i-1e-7),after=sampleTrack(track,i+1e-7);near(before.x,after.x);near(before.y,after.y);}
   }
 });
