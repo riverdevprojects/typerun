@@ -24,7 +24,7 @@ export function sampleLeap(track,index,origin,elapsed,reduced=false,landingFract
 }
 // Visible words follow the typing cursor, even while the camera/runner catches up.
 export function visibleWords(track,index){
-  const active=track.tokens[Math.min(index,track.total-1)];
+  const cursor=Math.min(index,track.total-1),active=track.tokens[cursor];
   return track.tokens.map((token,i)=>({token,index:i})).filter(({token,index:i})=>
-    active.kind==='fight'?i===index:token.kind!=='fight'&&token.chapter<=active.chapter);
+    active.kind==='fight'||active.stationary?i===cursor:token.kind!=='fight'&&!token.stationary&&token.chapter<=active.chapter);
 }

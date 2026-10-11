@@ -1,8 +1,9 @@
-import {classifyWord,matchingPrefix} from './engine.js';
 import {idlePose,walkPose,runPose,runningBlend,strideLength,blendPose,tripPose,fallPose,landPose,risePose,drawFigure,advanceTravel,smooth} from './motion.js';
 import {STORY,createTrack,sampleTrack,checkpoint,clamp,lerp} from './story.js';
-import {dragPose,jumpPose,doubleJumpPose,jumpLandingPose,combatPose,swordAngle,drawSword,victoryPose} from './story-motion.js';
-import {paintScene,stroke,drawDragon,drawLantern} from './scenery.js';
+import {dragPose,jumpPose,doubleJumpPose,jumpLandingPose,drawSword} from './story-motion.js';
+import {paintScene,stroke,drawDragon,drawBreath,drawLantern,drawSignpost} from './scenery.js';
+import {fightPhase,battlePose,battleRotation,battleSword,fireStrength} from './choreography.js';
+import {letterFeedback,insertedKeys,accuracy,belowMinimum,updateExtraLayout,ERROR_COLOR,EXTRA_COLOR} from './typing-feedback.js';
 import {EDGE_TIME,checkJump,sampleEdge,sampleLeap,leapDuration,typingFlightRate,visibleWords} from './leap.js';
 const $=id=>document.getElementById(id),canvas=$('stage'),ctx=canvas.getContext('2d'),input=$('typing');
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches,orange='#ed722e';
@@ -16,6 +17,20 @@ let sound=false,audio=null,best=0,particles=[],lastStats=0,sceneKind='forest',pr
 let edgeOrigin=null,leapOrigin=null,jumpReady=false;
 let flightRate=1,landingFraction=0,deferredWord=null,deferredKeys=[],resumeBlend=1,resumePose=renderedPose;
 let landingAge=1;
+let spinAge=-1;
+let chapterCorrect=0,chapterInputs=0,wordHistory=new Map();
+function expandWord(i,value){ctx.font=`${fontSize}px "Space Mono",Consolas,monospace`;updateExtraLayout(track,i,value,text=>ctx.measureText(text).width);}
+function recordKeys(keys){
+  for(const good of keys){attempted++;chapterInputs++;if(good){correct++;chapterCorrect++;}}
+  stats();
+  if(belowMinimum(chapterCorrect,chapterInputs)){fall(`Chapter accuracy fell to ${accuracy(chapterCorrect,chapterInputs).toFixed(1)}%. Back to the chapter's beginning.`);return false;}
+  return true;
+}
+function clearChapter(){
+  const scene=track.chapters[track.tokens[Math.min(index,track.total-1)].chapter];
+  for(let i=scene.start;i<scene.end;i++){expandWord(i,'');wordHistory.delete(i);}
+  chapterCorrect=0;chapterInputs=0;
+}
 try{best=Number(localStorage.getItem('typerun-v2-best')||0)||0;}catch{}
 function expected(){return track.tokens[index]?.word||'';}
 function available(){return !paused&&['ready','playing','stumble','gap','leaping','recover'].includes(mode);}
@@ -28,12 +43,25 @@ function currentSample(){
   if(mode==='gap')return sampleEdge(track,index,edgeOrigin,timer);
   if(mode==='leaping')return sampleLeap(track,index,leapOrigin,timer,reduced,landingFraction);
   if(mode==='falling')return {...fallOrigin,y:fallOrigin.y+(reduced?150:340)*(timer/.8)**2};
-  return sampleTrack(track,progress,reduced,index);
+  const sample=sampleTrack(track,progress,reduced,index),battle=battleState(sample);
+  if(battle.action==='spin'&&!reduced)sample.y-=Math.sin(clamp((battle.p-.2)/.4)*Math.PI)*38;
+  return sample;
+}
+function battleState(sample){
+  if(spinAge>=0&&spinAge<1.25&&['fight','cave'].includes(sample.token.kind))return {action:'spin',p:clamp(spinAge/1.2)};
+  if(sample.token.kind!=='fight')return {action:'idle',p:0};
+  const p=fightPhase(sample.token,progress),action=sample.token.action;
+  return {action,p:action==='spin'?spinAge<0?Math.min(.19,p):1:p};
+}
+function lanternState(sample){
+  const cave=track.chapters.find(c=>c.kind==='cave'),dawn=track.chapters.find(c=>c.kind==='dawn');
+  return {carried:progress>=cave.pickup&&progress<dawn.hook,hung:progress>=dawn.hook};
 }
 function fall(message){
   fallOrigin=currentSample();falls++;checkpointIndex=checkpoint(track,index);entryPose=renderedPose;
   mode='falling';timer=0;input.disabled=true;typed='';input.value='';
   deferredWord=null;deferredKeys=[];resumeBlend=1;
+  spinAge=-1;
   burst(fallOrigin.x,fallOrigin.y+12,'',9);feedback(message,'error');status('A slip into the margins');tone(100,.3,.045);stats();
 }
 function launch(){
@@ -60,7 +88,7 @@ function land(){
   input.disabled=false;feedback('Keep going. Space finishes the word.');
   if(deferredWord!==null){
     const word=deferredWord,keys=deferredKeys;deferredWord=null;deferredKeys=[];
-    typed=word;input.value=word;commit();
+    typed=word;input.value=word;commit(true);
     for(const event of keys){
       if(event.key)pressSpace(event.key);
       else{input.value=event.value;onInput();}
@@ -69,12 +97,13 @@ function land(){
   if(available())input.focus({preventScroll:true});
 }
 function status(text){if($('state-label').textContent.trim()===text)return;$('state-label').replaceChildren();const dot=document.createElement('span');dot.className='status-dot';$('state-label').append(dot,document.createTextNode(text));}
-function feedback(text,kind=''){$('feedback').textContent=text;$('feedback').className=kind;}
+function feedback(text,kind=''){$('feedback').textContent=text;$('feedback').className=`scene-toast ${kind}`;}
 function metadata(){
   const chapter=track.tokens[Math.min(index,track.total-1)].chapter,scene=track.chapters[chapter];
   $('story-number').textContent=String(chapter+1).padStart(2,'0');$('story-title').textContent=scene.title;
   $('scene-caption').textContent=scene.tag;$('story-text').textContent=STORY.title+'. '+scene.text;
   $('chapter-copy').textContent=scene.text;input.placeholder=expected();
+  $('active-word').textContent=expected();
   for(const [i,node] of [...document.querySelectorAll('.chapter')].entries()){
     node.classList.toggle('active',i===chapter);node.classList.toggle('finished',i<chapter||mode==='complete');
     if(i===chapter)node.setAttribute('aria-current','step');else node.removeAttribute('aria-current');
@@ -83,11 +112,12 @@ function metadata(){
   $('progress-label').textContent=`${Math.round(index/track.total*100)}% of the journey`;
 }
 function stats(){
-  const wpm=elapsed?Math.round(accepted*60/elapsed):0,accuracy=attempted?Math.round(correct*100/attempted):100;
-  $('wpm').textContent=wpm;$('accuracy').innerHTML=`${accuracy}<span class="unit">%</span>`;$('distance').textContent=accepted;
+  const wpm=elapsed?Math.round(accepted*60/elapsed):0,acc=Math.floor(accuracy(chapterCorrect,chapterInputs));
+  $('wpm').textContent=wpm;$('accuracy').innerHTML=`${acc}<span class="unit">%</span>`;$('distance').textContent=accepted;
+  canvas.dataset.chapterAccuracy=accuracy(chapterCorrect,chapterInputs).toFixed(2);
   if(accepted>=10&&wpm>best){best=wpm;try{localStorage.setItem('typerun-v2-best',String(best));}catch{}}
   $('session-note').textContent=`${jumps} jumps · ${falls} falls · best ${best} wpm`;
-  $('ending-stats').textContent=`${wpm} WPM · ${accuracy}% accuracy · ${jumps} jumps · ${falls} falls`;
+  $('ending-stats').textContent=`${wpm} WPM · ${Math.round(accuracy(correct,attempted))}% accuracy · ${jumps} jumps · ${falls} falls`;
 }
 function tone(frequency,duration=.07,volume=.025){
   if(!sound)return;try{audio??=new(window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')audio.resume();
@@ -106,16 +136,18 @@ function onInput(){
   interruptRecovery();
   if(/\s/.test(value)){
     const trimmed=value.trim();if(/\s/.test(trimmed)){input.value=typed;feedback('One word at a time. Your typing tells the story.','warn');return;}
-    typed=trimmed;input.value=typed;commit();return;
+    const keys=insertedKeys(typed,trimmed,expected());typed=trimmed;input.value=typed;expandWord(index,typed);if(recordKeys(keys))commit();return;
   }
-  typed=value.slice(0,expected().length+12);input.value=typed;if(typed)start();
-  const prefix=matchingPrefix(typed,expected());target=index+prefix/Math.max(1,expected().length);
-  if(inFlight())flightRate=Math.max(flightRate,typingFlightRate(prefix,expected().length));
-  if(prefix<typed.length)feedback('A wrong turn. Backspace to fix it before pressing space.','warn');
-  else feedback(track.tokens[index].kind==='fight'?'Finish the word to finish the move.':'Keep going. Space finishes the word.');
+  const next=value.slice(0,expected().length+12),keys=insertedKeys(typed,next,expected());
+  typed=next;input.value=typed;if(typed)start();expandWord(index,typed);
+  if(!recordKeys(keys))return;
+  const fraction=clamp(typed.length/Math.max(1,expected().length));target=index+fraction;
+  if(inFlight())flightRate=Math.max(flightRate,typingFlightRate(typed.length,expected().length));
+  feedback('');
 }
-function commit(){
-  if(!available()||!typed)return;start();const word=expected(),result=classifyWord(typed,word);
+function commit(spaceScored=false){
+  if(!available()||!typed)return;start();const word=expected();
+  if(!spaceScored&&!recordKeys([typed===word]))return;
   if(inFlight()){
     deferredWord=typed;input.value='';
     flightRate=Math.max(flightRate,(leapDuration(track.tokens[index])-timer)/.06);
@@ -123,17 +155,18 @@ function commit(){
   }
   if(mode==='gap')return;
   interruptRecovery();
-  attempted+=Math.max(typed.length,word.length);for(let i=0;i<Math.min(typed.length,word.length);i++)if(typed[i].toLowerCase()===word[i].toLowerCase())correct++;
-  if(result==='fall'){
-    fall('The word gives way. Back to this scene’s checkpoint.');return;
+  if(track.tokens[index].kind==='fight'){
+    const t=track.tokens[index];
+    if(t.action==='spin'&&t.word==='spun'){spinAge=0;burst(t.endX+95,t.y-63,'',18);tone(150,.25,.05);}
+    else if(['lunge','wing'].includes(t.action)){burst(t.endX+55,t.y-52,'',4);tone(420,.06,.025);}
   }
-  if(track.tokens[index].kind==='fight'){const t=track.tokens[index];burst(t.endX+65,t.y-52,'',6);tone(t.action==='parry'?640:240,.1,.035);}
   const origin=currentSample();
+  wordHistory.set(index,typed);const oldChapter=track.tokens[index].chapter;
   accepted++;index++;target=index;typed='';input.value='';
+  if(index<track.total&&track.tokens[index].chapter!==oldChapter){chapterCorrect=0;chapterInputs=0;}
   if(index===track.total){mode='finishing';input.disabled=true;feedback('The last word. The first morning.');status('Let there be light');}
   else{
     if(track.tokens[index].jump){edgeOrigin=origin;entryPose=renderedPose;mode='gap';timer=0;jumpReady=track.tokens[index].superJump;flightRate=1;landingFraction=0;feedback('');}
-    else if(result==='stumble'){entryPose=renderedPose;mode='stumble';timer=0;feedback('A familiar typo. A little stumble, then onward.','warn');tone(170,.12);}
     else if(mode!=='stumble'){feedback('Keep going. Space finishes the word.');}
   }
   metadata();stats();
@@ -148,6 +181,8 @@ function reset(){
   edgeOrigin=null;leapOrigin=null;jumpReady=false;
   flightRate=1;landingFraction=0;deferredWord=null;deferredKeys=[];resumeBlend=1;
   landingAge=1;
+  spinAge=-1;
+  chapterCorrect=0;chapterInputs=0;wordHistory.clear();
   input.value='';input.disabled=false;$('start-hint').hidden=false;$('pause-overlay').hidden=true;$('ending-overlay').hidden=true;
   $('pause').innerHTML='<kbd>esc</kbd> pause';metadata();stats();status('A story waiting to wake');feedback('Start with “the”. Space finishes each word.');input.focus({preventScroll:true});
 }
@@ -160,6 +195,7 @@ function resize(){
   const r=canvas.getBoundingClientRect();width=r.width;height=r.height;floor=height*.65;fontSize=width<550?23:28;
   const dpr=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);
   ctx.font=`${fontSize}px "Space Mono",Consolas,monospace`;charWidth=ctx.measureText('m').width;track=createTrack(word=>ctx.measureText(word).width);
+  for(const [i,value] of wordHistory)expandWord(i,value);if(typed)expandWord(index,typed);
   metadata();
 }
 function drawWords(sample){
@@ -168,10 +204,15 @@ function drawWords(sample){
     const x=t.x-cameraX,y=t.y-cameraY+floor;
     if(x+t.width<-100||x>width+80||y<-60||y>height+55)continue;
     const active=i===index&&index<track.total;
-    ctx.fillStyle=t.word==='jumped'?orange:i<index?'#839c7f':active?'#34423b':'#aebcab';ctx.fillText(t.word,x,y+fontSize*.8);
-    if(active){
-      const prefix=mode==='gap'&&!jumpReady?0:matchingPrefix(typed,t.word);if(prefix){ctx.fillStyle=orange;ctx.fillText(t.word.slice(0,prefix),x,y+fontSize*.8);}
-      stroke(ctx,[[x+prefix*charWidth,y+fontSize+7],[x+t.width,y+fontSize+7]],prefix<typed.length?'#c97655':orange,2);
+    const value=active?typed:wordHistory.get(i)||'',submitted=wordHistory.has(i),letters=letterFeedback(t.word,value);
+    for(const [j,letter] of letters.entries()){
+      ctx.fillStyle=letter.state==='incorrect'?ERROR_COLOR:letter.state==='extra'?EXTRA_COLOR:letter.state==='correct'?'#34423b':t.word==='jumped'?orange:active?'#71816b':'#8d9c86';
+      ctx.fillText(letter.char,x+j*charWidth,y+fontSize*.8);
+    }
+    if(submitted&&value!==t.word)stroke(ctx,[[x,y+fontSize+4],[x+Math.max(t.width,value.length*charWidth),y+fontSize+4]],ERROR_COLOR,2);
+    if(active&&available()){
+      const caretX=x+value.length*charWidth;
+      stroke(ctx,[[caretX,y+2],[caretX,y+fontSize+3]],orange,2);
     }
     if(t.kind==='bridge'&&t.jump)stroke(ctx,[[x+8,y+fontSize+48],[x+t.width*.5,y+fontSize+55],[x+t.width-7,y+fontSize+46]],'#c3d4c9',1.4);
   }
@@ -183,12 +224,17 @@ function poseFor(sample){
   if(mode==='gap'&&!reduced)pose=jumpPose(pose,Math.min(.5,sample.p));
   if(mode==='leaping'&&!reduced)pose=doubleJumpPose(entryPose,sample.p,dragPose(idlePose(idleTime)));
   if(mode==='playing'&&landingAge<.18&&!reduced)pose=jumpLandingPose(pose,1-smooth(landingAge/.18));
-  if(sample.token.kind==='fight')pose=blendPose(pose,combatPose(sample.p,sample.token.action),smooth(sample.token.local===0?sample.p*4:1));
-  if(sample.token.kind==='dawn')pose={...pose,frontElbow:[10,-51],frontHand:[19,-63]};
+  const battle=battleState(sample);
+  if(sample.token.kind==='fight'||battle.action==='spin')pose=blendPose(pose,battlePose(battle.action,battle.p,idleTime),smooth(sample.token.local===0?sample.p*4:1));
+  if(lanternState(sample).carried)pose={...pose,frontElbow:[10,-51],frontHand:[19,-63]};
+  if(sample.token.stationary){
+    const dawn=track.chapters[sample.token.chapter],hang=smooth((progress-dawn.hang)/Math.max(1,dawn.hook-dawn.hang));
+    pose=blendPose(pose,{...dragPose(idlePose(idleTime)),frontElbow:[12,-61],frontHand:[22,-77]},hang*(1-smooth(progress-dawn.hook)));
+  }
   if(mode==='stumble')pose=tripPose(entryPose,pose,timer/.82);
   if(mode==='falling')pose=fallPose(entryPose,timer/.8,reduced);
   if(mode==='recover')pose=timer<.35?landPose(entryPose,timer/.35):risePose((timer-.35)/.72,idleTime);
-  if(mode==='ending'||mode==='complete')pose=blendPose(pose,victoryPose(idleTime),smooth(timer/1.2));
+  if(mode==='ending'||mode==='complete')pose=blendPose(pose,idlePose(idleTime),smooth(timer/1.2));
   if(resumeBlend<1)pose=blendPose(resumePose,pose,smooth(resumeBlend));
   return pose;
 }
@@ -208,6 +254,8 @@ function drawCharacter(sample){
     ctx.restore();
   }
   ctx.save();ctx.translate(x,y);const scale=width<550?.92:1.1;ctx.scale(scale,scale);
+  const battle=battleState(sample),rotation=reduced?0:battleRotation(battle.action,battle.p);
+  if(rotation){ctx.translate(0,-35);ctx.rotate(rotation);ctx.translate(0,35);}
   if(mode==='leaping'&&!reduced&&sample.p<.7){
     const strength=Math.sin(Math.PI*clamp(sample.p/.7));
     ctx.globalAlpha=strength*.5;ctx.strokeStyle=orange;ctx.lineWidth=1.6;ctx.lineCap='round';
@@ -221,17 +269,25 @@ function drawCharacter(sample){
     ctx.globalAlpha=1;
   }
   if(mode==='ending'||mode==='complete'){
-    drawSword(ctx,[35,-54],Math.PI/2,51);drawLantern(ctx,pose.frontHand[0]+3,pose.frontHand[1]+28,time,true);
-  }else if(sample.token.kind==='fight'){
-    drawSword(ctx,pose.frontHand,swordAngle(sample.p,sample.token.action),63);
-    if(!reduced&&sample.p>.3&&sample.p<.65&&sample.token.action!=='duck'){
-      ctx.globalAlpha=Math.sin((sample.p-.3)/.35*Math.PI)*.25;ctx.strokeStyle=orange;ctx.lineWidth=2;
-      ctx.beginPath();ctx.arc(10,-49,48,-2.3,.45);ctx.stroke();ctx.globalAlpha=1;
+    drawSword(ctx,[-22,-54],Math.PI/2,51);
+  }else if(sample.token.kind==='fight'||battle.action==='spin'){
+    const otherHand=['fire','spin','bow'].includes(battle.action);
+    drawSword(ctx,otherHand?pose.backHand:pose.frontHand,battleSword(battle.action,battle.p),battle.action==='spin'?94:63);
+    if(!reduced&&battle.action==='spin'&&battle.p>.2&&battle.p<.85){
+      const alpha=Math.sin(clamp((battle.p-.2)/.65)*Math.PI);
+      ctx.globalAlpha=alpha*.2;ctx.strokeStyle='#ec9345';ctx.lineWidth=15;
+      ctx.beginPath();ctx.arc(3,-38,114,-2.3,.75);ctx.stroke();
+      ctx.globalAlpha=alpha*.8;ctx.strokeStyle='#e3974d';ctx.lineWidth=2;ctx.stroke();
+      ctx.globalAlpha=alpha*.5;ctx.lineWidth=1;ctx.beginPath();ctx.arc(3,-38,125,-2.15,.5);ctx.stroke();ctx.globalAlpha=1;
+    }
+    if(battle.action==='fire'){
+      ctx.globalAlpha=fireStrength(battle.p)*.8;ctx.strokeStyle='#e2b06a';ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(pose.frontHand[0]+3,pose.frontHand[1]+11,18,-1.3,1.1);ctx.stroke();ctx.globalAlpha=1;
     }
   }else{
     const hand=pose.backHand,angle=mode==='falling'?2.6+timer:Math.atan2(-4-hand[1],-65-hand[0]);
     drawSword(ctx,hand,angle,54);
-    if(sample.token.kind==='dawn')drawLantern(ctx,pose.frontHand[0]+3,pose.frontHand[1]+28,time,true);
+    if(lanternState(sample).carried)drawLantern(ctx,pose.frontHand[0]+3,pose.frontHand[1]+44,reduced?0:time,true);
     if(!reduced&&moveMix>.4&&sample.air<.08&&Math.sin(time*25)>.4){ctx.globalAlpha=.35;stroke(ctx,[[-68,-5],[-74,-10]],'#dfa269',1);ctx.globalAlpha=1;}
   }
   drawFigure(ctx,pose,orange);ctx.restore();
@@ -239,7 +295,9 @@ function drawCharacter(sample){
 function frame(now){
   const realDt=Math.max(0,(now-(lastTime||now))/1000),dt=Math.min(realDt,.035);lastTime=now;
   if(!paused){
-    time+=dt;landingAge+=dt;resumeBlend=Math.min(1,resumeBlend+dt/.14);if(started&&['playing','stumble','gap','leaping'].includes(mode))elapsed+=realDt;
+    time+=dt;landingAge+=dt;
+    if(spinAge>=0){const before=spinAge;spinAge+=dt;if(before<.84&&spinAge>=.84){const fight=track.chapters.find(c=>c.kind==='fight');burst(track.tokens[fight.start].endX+165,fight.y-70,'',24);tone(110,.3,.06);}}
+    resumeBlend=Math.min(1,resumeBlend+dt/.14);if(started&&['playing','stumble','gap','leaping'].includes(mode))elapsed+=realDt;
     if(mode==='gap'){
       const before=currentSample();
       timer+=realDt;
@@ -253,7 +311,7 @@ function frame(now){
       if(timer>=leapDuration(track.tokens[index]))land();
     }else if(mode==='falling'){
       timer+=dt;
-      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;metadata();input.disabled=false;feedback('Back at the checkpoint. Keep typing.');input.focus({preventScroll:true});}
+      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);clearChapter();index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;metadata();stats();input.disabled=false;feedback('');input.focus({preventScroll:true});}
     }else if(mode==='recover'){
       timer+=dt;if(timer>=1.1){mode='playing';moveMix=0;pace=0;gaitMix=0;input.disabled=false;feedback('Back at the checkpoint. The light is still waiting.');input.focus({preventScroll:true});}
     }else if(mode==='ending'){
@@ -273,7 +331,7 @@ function frame(now){
   }
   const sample=currentSample();canvas.dataset.motion=paused?'paused':mode;
   if(!paused){
-    const anchor=sample.token.kind==='fight'?width*.35:width*.3;
+    const anchor=sample.token.kind==='fight'?width*(width<550?.22:.35):width*.3;
     cameraX=lerp(cameraX,Math.max(0,sample.x-anchor),ease(7,dt));
     const next=track.tokens[Math.min(index,track.total-1)];
     if(!next.superJump||!['gap','leaping'].includes(mode))cameraX=clamp(cameraX,Math.max(0,next.x+next.width-width+28),Math.max(0,next.x-28));
@@ -281,22 +339,48 @@ function frame(now){
     if(sceneKind!==sample.token.kind){previousKind=sceneKind;sceneKind=sample.token.kind;sceneFade=0;}
     sceneFade=Math.min(1,sceneFade+dt*2.8);
   }
-  const sceneArgs={width,height,cameraX,cameraY,floor,time:reduced?0:time,reduced};
+  const dawn=track.chapters.find(c=>c.kind==='dawn'),sunrise=smooth((progress-dawn.hook)/Math.max(1,track.total-dawn.hook));
+  const sceneArgs={width,height,cameraX,cameraY,floor,time:reduced?0:time,reduced,sunrise};
   ctx.clearRect(0,0,width,height);paintScene(ctx,previousKind,sceneArgs);ctx.save();ctx.globalAlpha=smooth(sceneFade);paintScene(ctx,sceneKind,sceneArgs);ctx.restore();
-  if(['approach','fight','dawn'].includes(sample.token.kind)){
+  if(['approach','fight','cave'].includes(sample.token.kind)){
     const fight=track.chapters.find(c=>c.kind==='fight'),anchor=track.tokens[fight.start].endX;
-    const x=anchor-cameraX+Math.min(150,width*.32),y=fight.y-cameraY+floor;
-    const resolve=sample.token.kind==='dawn'?1:sample.token.kind==='fight'?clamp((progress-fight.start)/(fight.end-fight.start)):0;
-    drawDragon(ctx,x,y,{time,p:sample.p,action:sample.token.action,resolve,reduced});
-    drawLantern(ctx,x+20,y-80,time,true);
-    if(sample.token.kind==='fight'){
-      ctx.font='9px "DM Sans",sans-serif';ctx.fillStyle='#84988a';ctx.fillText('THE KEEPER OF NIGHT',x-58,y-188);
-      stroke(ctx,[[x-58,y-178],[x+70,y-178]],'#dce4dc',2);stroke(ctx,[[x-58,y-178],[x-58+128*(1-resolve),y-178]],'#859e8e',2);
+    const scale=width<550?.56:1.03,battle=battleState(sample),player=anchor-cameraX;
+    const x=Math.min(player+Math.min(180,width*.34),width-225*scale-12),y=fight.y-cameraY+floor;
+    const approach=track.chapters.find(c=>c.kind==='approach');
+    const resolve=sample.token.kind==='cave'?1:spinAge>=0?smooth((spinAge-.84)/.4):0;
+    drawDragon(ctx,x,y,{time:reduced?0:time,p:battle.p,action:battle.action,resolve,reduced,scale,reveal:clamp((progress-approach.start)/(approach.end-approach.start)*2)});
+    if(battle.action==='fire'){
+      const s=width<550?.92:1.1,pose=poseFor(sample);
+      drawBreath(ctx,[x-102*scale,y-123*scale],[sample.x-cameraX+(pose.frontHand[0]+3)*s,sample.y-cameraY+floor+(pose.frontHand[1]+10)*s],{time:reduced?0:time,strength:fireStrength(battle.p),reduced});
     }
+    if(sample.token.kind==='fight'){
+      ctx.font='9px "DM Sans",sans-serif';ctx.fillStyle='#758970';ctx.fillText('THE MOUNTAIN KEEPER',x-60,y-215*scale);
+      const hp=clamp((progress-fight.start)/(fight.end-fight.start));
+      stroke(ctx,[[x-60,y-204*scale],[x+65,y-204*scale]],'#d5decf',2);stroke(ctx,[[x-60,y-204*scale],[x-60+125*(1-hp),y-204*scale]],'#809375',2);
+    }
+  }
+  if(sample.token.kind==='cave'){
+    const cave=track.chapters[sample.token.chapter],x=cave.pickupX-cameraX+20,y=cave.y-cameraY+floor;
+    stroke(ctx,[[x-21,y+12],[x-19,y-5],[x+18,y-5],[x+20,y+12]],'#9ab095',2);
+    stroke(ctx,[[x-16,y-7],[x+16,y-7]],'#c0cdb2',4);
+    if(progress<cave.pickup)drawLantern(ctx,x,y-5,reduced?0:time,true);
+  }
+  if(sample.token.kind==='dawn'){
+    const x=track.tokens.at(-1).endX-cameraX,y=dawn.y-cameraY+floor;
+    const ledge=[[x-88,y+37],[x+91,y+37],[x+167,y+92],[x+229,height+22],[x-267,height+22],[x-154,y+90]];
+    ctx.beginPath();ledge.forEach(([px,py],i)=>i?ctx.lineTo(px,py):ctx.moveTo(px,py));ctx.closePath();ctx.fillStyle='#d3dec2';ctx.fill();
+    stroke(ctx,ledge.slice(0,4),'#afc29d',1.4);
+    stroke(ctx,[[x-46,y+41],[x-21,y+68],[x-38,y+88],[x-30,height]],'#bccbad',1);
+    stroke(ctx,[[x+69,y+40],[x+50,y+73],[x+86,y+101]],'#bccbad',1);
+    stroke(ctx,[[x-75,y+36],[x-77,y+29],[x-71,y+34]],'#a1b88d',.8);
+    drawSignpost(ctx,x+40,y,reduced?0:time,lanternState(sample).hung);
   }
   drawWords(sample);drawCharacter(sample);
   for(const p of particles){ctx.globalAlpha=1-p.age/.75;ctx.fillStyle='#dca56c';if(p.letter){ctx.font='17px "Space Mono",monospace';ctx.fillText(p.letter,p.x-cameraX,p.y-cameraY+floor);}else stroke(ctx,[[p.x-cameraX,p.y-cameraY+floor],[p.x-cameraX-p.vx*.04,p.y-cameraY+floor-p.vy*.04]],'#dda569',1.5);}ctx.globalAlpha=1;
-  if(!paused&&mode==='playing')status(sample.token.kind==='fight'?'Steel and sparks':sample.token.number?'Up into the clouds':sample.token.jump?'Across the silence':'Following the light');
+  if(!paused&&mode==='playing'){
+    const action=battleState(sample).action;
+    status(sample.token.kind==='fight'?({guard:'Stand your ground',lunge:'Claws against steel',wing:'Beneath the wings',fire:'Hold back the fire',spin:'Turn the tide',bow:'The keeper bows'})[action]:sample.token.kind==='cave'?'A light in the stone':sample.token.kind==='dawn'?'The final ridge':sample.token.number?'Up into the clouds':sample.token.jump?'Across the ravine':'Up the mountain');
+  }
   if(now-lastStats>500){if(mode!=='complete')stats();lastStats=now;}
   requestAnimationFrame(frame);
 }

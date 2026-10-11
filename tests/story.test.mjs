@@ -6,11 +6,14 @@ import {jumpPose,doubleJumpPose,jumpLandingPose,dragPose,combatPose,swordAngle} 
 import {EDGE_TIME,JUMP_WINDOW,checkJump,sampleEdge,sampleLeap,leapDuration,typingFlightRate,visibleWords} from '../dist/leap.js';
 const track=createTrack(word=>word.length*17);
 const near=(a,b)=>assert.ok(Math.abs(a-b)<.001,`${a} differs from ${b}`);
-test('one complete authored story has six reachable scenes and three numbered ascents',()=>{
-  assert.equal(track.chapters.length,6);assert.ok(track.total>120);
+test('one complete mountain story has seven scenes, a cave, and three numbered ascents',()=>{
+  assert.equal(track.chapters.length,7);assert.ok(track.total>200);
   assert.equal(track.tokens.map(t=>t.word).join(' '),STORY.chapters.map(c=>c.text).join(' '));
   const numbers=track.tokens.filter(t=>t.number);assert.deepEqual(numbers.map(t=>t.word),['1','2','3']);
-  assert.deepEqual(numbers.map(t=>t.y),[-82,-164,-246]);
+  assert.ok(numbers[0].y<-150);
+  for(let i=1;i<numbers.length;i++)assert.ok(numbers[i].y<numbers[i-1].y-82);
+  assert.deepEqual(track.chapters.map(c=>c.kind),['forest','bridge','tower','approach','fight','cave','dawn']);
+  for(let i=1;i<track.total;i++)assert.ok(track.tokens[i].y<=track.tokens[i-1].y+.001);
 });
 test('solid ground joins continuously; gap words start on their landing platform',()=>{
   for(let i=1;i<track.total;i++){
@@ -42,7 +45,7 @@ test('a second Space boosts the first hop; missed or wrong inputs fail',()=>{
   for(const key of ['Enter','jump','Letter'])assert.equal(checkJump(key,.2),'fall');
   for(const key of [null,'Space'])assert.equal(checkJump(key,JUMP_WINDOW),'fall');
   const edge=sampleEdge(track,26,{x:track.tokens[25].endX,y:0},JUMP_WINDOW-.001);
-  assert.ok(edge.x>track.tokens[25].endX&&edge.y>35,'a slow entry keeps moving down between the words');
+  assert.ok(edge.x>track.tokens[25].endX&&edge.y>track.tokens[25].y+35,'a slow entry keeps moving down between the words');
 });
 test('jumped launches a super jump over a gap eight times wider than the regular crossing',()=>{
   const i=track.tokens.findIndex(t=>t.superJump),t=track.tokens[i],previous=track.tokens[i-1];
@@ -77,6 +80,7 @@ test('the active word is rendered at scene changes and during the fight, indepen
       if(chapter.kind==='fight')assert.deepEqual(visible.map(v=>v.index),[i]);
     }
   }
+  assert.deepEqual(visibleWords(track,track.total).map(v=>v.index),[track.total-1]);
 });
 test('combat words replace each other on one spot and errors return to the current scene',()=>{
   const scene=track.chapters.find(c=>c.kind==='fight');

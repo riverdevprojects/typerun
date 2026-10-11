@@ -1,32 +1,35 @@
 # Typerun
 
-A browser typing adventure. Your keystrokes carry an orange stick figure through a world drawn from the story.
+A browser typing adventure drawn with canvas strokes. Your words carry a sword-dragging orange traveler up a mountain to bring back the sun.
 
 ## Run locally
 
-Run `node preview.mjs`, then open http://127.0.0.1:5173. No installation or build step is needed. Run `node --test` for word classification, gait continuity, story paths, numbered ascents, combat, and checkpoints.
+Run `node preview.mjs`, then open http://127.0.0.1:5173. No installation or build step is needed. Run `node --test` for typing feedback, chapter accuracy, continuous movement, jumps, battle choreography, lantern progression, and checkpoints.
 
 ## V2: The Last Light
 
-One complete original story, 134 words in six scenes: ash woods, a broken crossing, a ruined tower, a dragon encounter, a sword fight, and the first morning. The traveler drags a sword behind him, then carries the rescued lantern home.
+One original story, 212 words in seven scenes: ash foothills, a broken ravine crossing, mountain steps, the cave keeper, steel and fire, the lantern cave, and the summit. The story continuously gains altitude, with three numbered jumps climbing another 82 pixels each. The camera follows with a delay.
 
-- Correct typing drives traversal on solid word platforms and attacks. The breathing idle from v1 is retained, together with the original walk/run gaits. The next story word remains visible while the runner and camera catch up at scene boundaries.
-- At a wide gap, the first Space submits the story word and starts a small hop. Press Space again within 900 milliseconds to boost into a double jump. Holding the key does not trigger a boost. Missed or wrong inputs cause a fall and scene checkpoint reset. After the second Space, input stays active during the first hop and the boosted flight. Correct letters speed up the jump and move the landing along the next word. Submitting a word in midair finishes the remaining flight quickly; subsequent letters and Space taps are preserved for the next word and jump. Jump taps do not count as story words or accuracy characters.
-- Orange `jumped` replaces `leaped`. Submitting it automatically launches a 1.3-second super jump over a 640-pixel gap, with a higher arc and orange speed streaks. The numbers `1`, `2`, `3` each climb 82 pixels using the double-Space control. The camera follows both directions with a delay.
-- At the fight, words replace one another at a fixed position. Their letters drive blocks, sword swings, and ducks. The dragon reacts, sparks fly, and its chain fades as the story progresses.
-- Dawn carries the lantern, plants the sword, and reveals a completion screen with session statistics and replay.
-- Space or Enter submits a word; Backspace fixes it first. Common typos stumble. Other submitted mistakes animate a fall and return to the beginning of the current scene. Typing is available immediately on respawn and interrupts the get-up animation smoothly. Repeated words after retries count toward session typing statistics.
-- Pause, help, restart, page visibility pause, optional synthesized sound, local personal best, mobile layout, and reduced motion are supported. Reduced motion removes jump arcs and ambient cycling; pause freezes all animation.
-- No backend, application libraries, raster art, or generated media are required. Everything in the story is drawn with canvas strokes.
+Layered trees, distant mountain faces, mist, carved canyon walls, broken bridges, masonry, a cave interior, summit plants, and a gradual sunrise retain a muted hand-drawn style. Parallax details use stable world coordinates. The dragon is an original angular, segmented creature with articulated wings, armored neck, horns, claws, a tapering tail, and quiet bone-colored eyes. It has no glowing violet accents.
 
-Double jumps have a distinct downward kick, compact midair tuck, sword follow-through, and a brief orange pressure ring and curved air trails. The runner reaches toward the next word and absorbs the landing with a short knee bend; this settling animation never blocks typing.
+Type directly on the story; the separate next-word dock is removed. Click the scene to focus the keyboard input. Untyped letters are muted, correct letters turn dark, wrong positions keep the expected letter and turn red, and extra letters appear in darker red. Submitted incorrect words retain an error underline, including incomplete words. Extra letters expand the following terrain; backspacing shrinks it again. The orange caret follows the current input. Feedback follows Monkeytype's default `indicateTypos: off` behavior, verified against its official test UI source, rather than replacing expected letters with the mistyped ones.
+
+Chapter accuracy is correct input keystrokes divided by all scored input keystrokes. Incorrect keystrokes stay in the score after backspace; deleted characters do not count as new keystrokes. Normal word-submission Space is scored. The second Space used to jump is a game control and is excluded. Case and punctuation must match. A chapter score of exactly 85% is allowed. A score strictly below 85% causes a fall and restarts the current chapter with fresh chapter accuracy and cleared chapter errors. Otherwise submitted mistakes are allowed and movement continues. Session accuracy in the ending includes all attempts. Chapter accuracy resets when entering a new chapter.
+
+At a gap, first Space submits the story word and starts a small hop. Tap Space again within 900 milliseconds to boost into a double jump. A missed or incorrect jump command still causes a physical fall to the chapter checkpoint. Holding Space does not trigger the second jump. After the second Space, typing works during the run-up and flight. Typing speeds up the landing; subsequent rapid letters and Space presses are preserved. Orange `jumped` launches a super jump across a 640-pixel gap. Double jumps have a downward kick, tuck, sword follow-through, pressure ring, air trails, and a soft landing that never blocks typing.
+
+The stationary battle progresses through six authored beats: guard, claw lunge/parry, wing sweep/duck, fire breath, spinning sword strike, and defeated bow. During fire, the traveler raises one arm into the stream and keeps the sword in the other hand. Submitting the story word `spun` launches a complete timed 1.2-second aerial spin and sweeping strike; it finishes even if typing stops. Typing can continue throughout it. Armor fragments and chain sparks accompany the hit. The defeated dragon folds its wings and bows, granting access to the cave.
+
+The lantern waits on a stone pedestal inside the cave. The traveler picks it up, carries it along the final ridge, and hangs it on the summit signpost. The final words replace one another at that spot so the ending remains framed around the lantern. Hanging it starts the sunrise; the completed story plants the sword and reveals session statistics and replay.
+
+Pause, restart, visibility pause, optional synthesized sound, local personal best, responsive layout, accessible keyboard input, and reduced motion are retained. Pause freezes animation. Reduced motion suppresses jump arcs, the spinning rotation, camera jolts, air trails, and ambient cycling. Respawn immediately enables typing and blends out of the get-up pose on the first keystroke.
 
 ## Classic v1
 
-The header links to `v1.html`. It retains the eight original stories, continuous text terrain, common-typo trips, falls to the next story, and breathing idle. V1 is also preserved on the GitHub `main` branch; v2 work lives on `v2`.
+`v1.html` retains the original eight stories, common-typo trips, fall-to-new-story behavior, walking/running differentiation, and breathing idle. V1 remains on GitHub `main`; new work lives on `v2`.
 
 ## Files
 
-`dist/` is the deployable static application. `story.js` authors the chapters, word terrain, path sampling, and checkpoints. `leap.js` handles command timing, edge movement, timed flights, and visible word selection. `story-motion.js` adds sword carrying, jumps, combat poses, and the victory pose. `scenery.js` draws the environments, dragon, sword-adjacent effects, and lantern. `game.js` connects typing to choreography, the camera, UI, sound, recovery, and completion. `motion.js` retains the shared v1 character rig. `engine.js` classifies mistakes; `v1-game.js` drives the preserved classic game.
+`dist/` is the deployable static application. `story.js` authors the chapters, ascending terrain, battle beats, and checkpoints. `leap.js` samples timed flights and selects visible words. `typing-feedback.js` implements letter states, keystroke scoring, the accuracy boundary, and extra-letter layout. `choreography.js` defines combat phases and poses. `story-motion.js` supplies sword carrying and double-jump poses. `landscape.js` draws the backgrounds; `dragon.js` draws the keeper and fire breath. `scenery.js` supplies shared drawing primitives, the lantern, and signpost. `game.js` connects typing, animation, camera, and UI. `motion.js` and `engine.js` preserve classic v1 behavior.
 
-Speed uses accepted words over elapsed play time, excluding pauses, falls, recovery, and the ending. Accuracy compares submitted character positions, including failed words. Capitalization is flexible; punctuation must match. Personal bests for v1 and v2 use separate local storage keys, and start recording after ten accepted words.
+Research: https://github.com/monkeytypegame/monkeytype/blob/master/frontend/src/ts/test/test-ui.ts and https://github.com/monkeytypegame/monkeytype/blob/master/frontend/src/ts/test/events/live-cache.ts.
