@@ -23,8 +23,6 @@ Run `node preview.mjs`, then open http://127.0.0.1:5173. No installation or buil
 
 The character has a relaxed idle with breathing and separated arms. Slow typing produces an upright walk with short steps, relaxed arms, and continuous foot contact. Fast typing produces longer running strides, bent arms, forward lean, and airborne phases. Smoothed travel speed blends the two gaits without resetting their shared step phase. Foot travel drives animation speed; moving and standing also blend gradually. Mistake animations start from the displayed pose, and getting up returns continuously to idle. Feet stay above the text; no shadow or platform is drawn over the letters.
 
-Above 100 displayed WPM, the runner sprints with a deeper lean, stronger arm drive, higher heel recovery, and 22% faster cadence. At 120 WPM, he dashes with an all-out lean, longer airborne strides, 50% faster cadence, and subtle air streaks above the text. Both tiers blend smoothly into the existing gait and stop when typing stops. Reduced motion disables gait cycling and streaks. Thresholds use the rounded session speed shown in the counter.
-
 Idle breathing has a 3.8-second cycle: the head and shoulders rise gently on the inhale, relaxed hands follow with a slight delay, and the feet remain planted. Pausing freezes the pose; reduced motion holds a still idle.
 
 Word mistakes are classified on submission to distinguish a common typo such as `teh` from a substantial error. Capitalization is flexible; punctuation must match. Accuracy compares submitted character positions, including errors on failed words. Speed uses accepted words over elapsed play time, excluding explicit pauses and fall animations.
