@@ -15,9 +15,11 @@ export function sampleEdge(track,index,origin,elapsed){
     p:clamp(elapsed/JUMP_WINDOW),index,token,air:Math.sin(clamp(elapsed/JUMP_WINDOW)*Math.PI)};
 }
 export function leapDuration(token){return token.superJump?1.3:token.number?.68:.58;}
-export function sampleLeap(track,index,origin,elapsed,reduced=false){
+export function typingFlightRate(prefix,length){return 1+3*clamp(prefix/Math.max(1,length));}
+export function sampleLeap(track,index,origin,elapsed,reduced=false,landingFraction=0){
   const token=track.tokens[index],p=clamp(elapsed/leapDuration(token));
-  return {x:lerp(origin.x,token.x,p),y:lerp(origin.y,token.y,p)-(reduced?0:Math.sin(p*Math.PI)*token.arc),
+  const landingX=lerp(token.x,token.endX,clamp(landingFraction));
+  return {x:lerp(origin.x,landingX,p),y:lerp(origin.y,token.y,p)-(reduced?0:Math.sin(p*Math.PI)*token.arc),
     p,index,token,air:reduced?0:Math.sin(p*Math.PI)};
 }
 // Visible words follow the typing cursor, even while the camera/runner catches up.

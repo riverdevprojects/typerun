@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {STORY,createTrack,sampleTrack,checkpoint} from '../dist/story.js';
 import {idlePose} from '../dist/motion.js';
 import {jumpPose,combatPose,swordAngle} from '../dist/story-motion.js';
-import {EDGE_TIME,JUMP_WINDOW,checkJump,sampleEdge,sampleLeap,leapDuration,visibleWords} from '../dist/leap.js';
+import {EDGE_TIME,JUMP_WINDOW,checkJump,sampleEdge,sampleLeap,leapDuration,typingFlightRate,visibleWords} from '../dist/leap.js';
 const track=createTrack(word=>word.length*17);
 const near=(a,b)=>assert.ok(Math.abs(a-b)<.001,`${a} differs from ${b}`);
 test('one complete authored story has six reachable scenes and three numbered ascents',()=>{
@@ -52,6 +52,15 @@ test('jumped launches a super jump over a gap eight times wider than the regular
   const origin={x:previous.endX,y:previous.y},mid=sampleLeap(track,i,origin,leapDuration(t)/2);
   assert.ok(mid.x>origin.x+300&&mid.y<origin.y-150);
   const end=sampleLeap(track,i,origin,leapDuration(t));near(end.x,t.x);near(end.y,t.y);
+});
+test('typing in flight advances the arc faster and lands at the typed part of the word',()=>{
+  const i=track.tokens.findIndex(t=>t.jump),token=track.tokens[i],origin={x:token.fromX,y:token.fromY};
+  const dt=.06,base=sampleLeap(track,i,origin,dt),fast=sampleLeap(track,i,origin,dt*typingFlightRate(4,8),false,.5);
+  assert.ok(fast.p>base.p);assert.ok(fast.x>base.x);
+  assert.equal(typingFlightRate(0,8),1);assert.equal(typingFlightRate(8,8),4);assert.equal(typingFlightRate(80,8),4);
+  const end=sampleLeap(track,i,origin,leapDuration(token),false,.5);
+  near(end.x,token.x+token.width*.5);near(end.y,token.y);
+  const ground=sampleTrack(track,i+.5,false,i);near(end.x,ground.x);near(end.y,ground.y);
 });
 test('finishing a word without submitting it cannot cross a gap or suspend the runner',()=>{
   for(const [i,t] of track.tokens.entries())if(t.jump){

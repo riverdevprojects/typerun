@@ -3,7 +3,7 @@ import {idlePose,walkPose,runPose,runningBlend,strideLength,blendPose,tripPose,f
 import {STORY,createTrack,sampleTrack,checkpoint,clamp,lerp} from './story.js';
 import {dragPose,jumpPose,combatPose,swordAngle,drawSword,victoryPose} from './story-motion.js';
 import {paintScene,stroke,drawDragon,drawLantern} from './scenery.js';
-import {EDGE_TIME,checkJump,sampleEdge,sampleLeap,leapDuration,visibleWords} from './leap.js';
+import {EDGE_TIME,checkJump,sampleEdge,sampleLeap,leapDuration,typingFlightRate,visibleWords} from './leap.js';
 const $=id=>document.getElementById(id),canvas=$('stage'),ctx=canvas.getContext('2d'),input=$('typing');
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches,orange='#ed722e';
 const ease=(rate,dt)=>1-Math.exp(-rate*dt);
@@ -14,23 +14,30 @@ let gait=0,pace=0,gaitMix=0,moveMix=0,renderedPose=idlePose(),entryPose=rendered
 let timer=0,fallOrigin=null,checkpointIndex=0,accepted=0,correct=0,attempted=0,falls=0,jumps=0;
 let sound=false,audio=null,best=0,particles=[],lastStats=0,sceneKind='forest',previousKind='forest',sceneFade=1;
 let edgeOrigin=null,leapOrigin=null,jumpReady=false;
+let flightRate=1,landingFraction=0,deferredWord=null,deferredKeys=[],resumeBlend=1,resumePose=renderedPose;
 try{best=Number(localStorage.getItem('typerun-v2-best')||0)||0;}catch{}
 function expected(){return track.tokens[index]?.word||'';}
-function available(){return !paused&&['ready','playing','stumble','gap'].includes(mode);}
+function available(){return !paused&&['ready','playing','stumble','gap','leaping','recover'].includes(mode);}
+function inFlight(){return mode==='leaping'||mode==='gap'&&jumpReady;}
+function interruptRecovery(){
+  if(mode!=='recover')return;
+  resumePose=renderedPose;resumeBlend=0;mode='playing';timer=0;moveMix=0;pace=0;gaitMix=0;
+}
 function currentSample(){
   if(mode==='gap')return sampleEdge(track,index,edgeOrigin,timer);
-  if(mode==='leaping')return sampleLeap(track,index,leapOrigin,timer,reduced);
+  if(mode==='leaping')return sampleLeap(track,index,leapOrigin,timer,reduced,landingFraction);
   if(mode==='falling')return {...fallOrigin,y:fallOrigin.y+(reduced?150:340)*(timer/.8)**2};
   return sampleTrack(track,progress,reduced,index);
 }
 function fall(message){
   fallOrigin=currentSample();falls++;checkpointIndex=checkpoint(track,index);entryPose=renderedPose;
   mode='falling';timer=0;input.disabled=true;typed='';input.value='';
+  deferredWord=null;deferredKeys=[];resumeBlend=1;
   burst(fallOrigin.x,fallOrigin.y+12,'',9);feedback(message,'error');status('A slip into the margins');tone(100,.3,.045);stats();
 }
 function launch(){
   leapOrigin=currentSample();entryPose=renderedPose;mode='leaping';timer=0;jumps++;
-  progress=index;target=index;progressVelocity=0;typed='';input.value='';input.disabled=true;
+  progress=index;progressVelocity=0;input.disabled=false;
   tone(track.tokens[index].number?440+Number(expected())*90:420,.09);stats();
   if(track.tokens[index].superJump){burst(leapOrigin.x,leapOrigin.y-8,'',12);status('SUPER JUMP');feedback('Across the great divide!');tone(740,.2,.035);}
 }
@@ -38,7 +45,26 @@ function boost(key){
   if(paused||mode!=='gap'||jumpReady)return;
   const result=checkJump(key,timer+Math.max(0,(performance.now()-lastTime)/1000));
   if(result==='fall')fall('You missed the second jump. Back to this scene’s checkpoint.');
-  else if(result==='jump'){jumpReady=true;input.disabled=true;if(timer>=EDGE_TIME)launch();}
+  else if(result==='jump'){jumpReady=true;if(timer>=EDGE_TIME)launch();}
+}
+function pressSpace(key){
+  if(!available())return;
+  if(deferredWord!==null){deferredKeys.push({key});input.value='';return;}
+  if(mode==='gap'&&!jumpReady){boost(key===' '?'Space':'Enter');return;}
+  commit();
+}
+function land(){
+  progress=index+landingFraction;progressVelocity=0;mode='playing';timer=0;moveMix=0;pace=0;gaitMix=0;
+  input.disabled=false;feedback('Keep going. Space finishes the word.');
+  if(deferredWord!==null){
+    const word=deferredWord,keys=deferredKeys;deferredWord=null;deferredKeys=[];
+    typed=word;input.value=word;commit();
+    for(const event of keys){
+      if(event.key)pressSpace(event.key);
+      else{input.value=event.value;onInput();}
+    }
+  }
+  if(available())input.focus({preventScroll:true});
 }
 function status(text){if($('state-label').textContent.trim()===text)return;$('state-label').replaceChildren();const dot=document.createElement('span');dot.className='status-dot';$('state-label').append(dot,document.createTextNode(text));}
 function feedback(text,kind=''){$('feedback').textContent=text;$('feedback').className=kind;}
@@ -70,22 +96,31 @@ function start(){started=true;$('start-hint').hidden=true;if(mode==='ready')mode
 function onInput(){
   if(!available()){input.value=typed;return;}
   const value=input.value;
-  if(mode==='gap'){
+  if(deferredWord!==null){deferredKeys.push({value});return;}
+  if(mode==='gap'&&!jumpReady){
     boost(value===' '?'Space':'Letter');input.value='';
     return;
   }
+  interruptRecovery();
   if(/\s/.test(value)){
     const trimmed=value.trim();if(/\s/.test(trimmed)){input.value=typed;feedback('One word at a time. Your typing tells the story.','warn');return;}
     typed=trimmed;input.value=typed;commit();return;
   }
   typed=value.slice(0,expected().length+12);input.value=typed;if(typed)start();
   const prefix=matchingPrefix(typed,expected());target=index+prefix/Math.max(1,expected().length);
+  if(inFlight())flightRate=Math.max(flightRate,typingFlightRate(prefix,expected().length));
   if(prefix<typed.length)feedback('A wrong turn. Backspace to fix it before pressing space.','warn');
   else feedback(track.tokens[index].kind==='fight'?'Finish the word to finish the move.':'Keep going. Space finishes the word.');
 }
 function commit(){
-  if(mode==='gap')return;
   if(!available()||!typed)return;start();const word=expected(),result=classifyWord(typed,word);
+  if(inFlight()){
+    deferredWord=typed;input.value='';
+    flightRate=Math.max(flightRate,(leapDuration(track.tokens[index])-timer)/.06);
+    return;
+  }
+  if(mode==='gap')return;
+  interruptRecovery();
   attempted+=Math.max(typed.length,word.length);for(let i=0;i<Math.min(typed.length,word.length);i++)if(typed[i].toLowerCase()===word[i].toLowerCase())correct++;
   if(result==='fall'){
     fall('The word gives way. Back to this scene’s checkpoint.');return;
@@ -95,7 +130,7 @@ function commit(){
   accepted++;index++;target=index;typed='';input.value='';
   if(index===track.total){mode='finishing';input.disabled=true;feedback('The last word. The first morning.');status('Let there be light');}
   else{
-    if(track.tokens[index].jump){edgeOrigin=origin;entryPose=renderedPose;mode='gap';timer=0;jumpReady=track.tokens[index].superJump;input.disabled=jumpReady;feedback('');}
+    if(track.tokens[index].jump){edgeOrigin=origin;entryPose=renderedPose;mode='gap';timer=0;jumpReady=track.tokens[index].superJump;flightRate=1;landingFraction=0;feedback('');}
     else if(result==='stumble'){entryPose=renderedPose;mode='stumble';timer=0;feedback('A familiar typo. A little stumble, then onward.','warn');tone(170,.12);}
     else if(mode!=='stumble'){feedback('Keep going. Space finishes the word.');}
   }
@@ -109,12 +144,13 @@ function reset(){
   time=0;elapsed=0;started=false;gait=0;pace=0;gaitMix=0;moveMix=0;timer=0;accepted=0;correct=0;attempted=0;falls=0;jumps=0;particles=[];
   renderedPose=idlePose();entryPose=renderedPose;sceneKind='forest';previousKind='forest';sceneFade=1;
   edgeOrigin=null;leapOrigin=null;jumpReady=false;
+  flightRate=1;landingFraction=0;deferredWord=null;deferredKeys=[];resumeBlend=1;
   input.value='';input.disabled=false;$('start-hint').hidden=false;$('pause-overlay').hidden=true;$('ending-overlay').hidden=true;
   $('pause').innerHTML='<kbd>esc</kbd> pause';metadata();stats();status('A story waiting to wake');feedback('Start with “the”. Space finishes each word.');input.focus({preventScroll:true});
 }
 function pause(value){
   if(paused===value)return;paused=value;$('pause-overlay').hidden=!value;$('ending-overlay').hidden=value||mode!=='complete';
-  input.disabled=value||!['ready','playing','stumble','gap'].includes(mode);$('pause').innerHTML=`<kbd>esc</kbd> ${value?'resume':'pause'}`;
+  input.disabled=!available();$('pause').innerHTML=`<kbd>esc</kbd> ${value?'resume':'pause'}`;
   status(value?'Paused':mode==='complete'?'A promise kept':'Your story continues');if(!input.disabled)input.focus({preventScroll:true});
 }
 function resize(){
@@ -131,7 +167,7 @@ function drawWords(sample){
     const active=i===index&&index<track.total;
     ctx.fillStyle=t.word==='jumped'?orange:i<index?'#839c7f':active?'#34423b':'#aebcab';ctx.fillText(t.word,x,y+fontSize*.8);
     if(active){
-      const prefix=['gap','leaping'].includes(mode)?0:matchingPrefix(typed,t.word);if(prefix){ctx.fillStyle=orange;ctx.fillText(t.word.slice(0,prefix),x,y+fontSize*.8);}
+      const prefix=mode==='gap'&&!jumpReady?0:matchingPrefix(typed,t.word);if(prefix){ctx.fillStyle=orange;ctx.fillText(t.word.slice(0,prefix),x,y+fontSize*.8);}
       stroke(ctx,[[x+prefix*charWidth,y+fontSize+7],[x+t.width,y+fontSize+7]],prefix<typed.length?'#c97655':orange,2);
     }
     if(t.kind==='bridge'&&t.jump)stroke(ctx,[[x+8,y+fontSize+48],[x+t.width*.5,y+fontSize+55],[x+t.width-7,y+fontSize+46]],'#c3d4c9',1.4);
@@ -149,6 +185,7 @@ function poseFor(sample){
   if(mode==='falling')pose=fallPose(entryPose,timer/.8,reduced);
   if(mode==='recover')pose=timer<.35?landPose(entryPose,timer/.35):risePose((timer-.35)/.72,idleTime);
   if(mode==='ending'||mode==='complete')pose=blendPose(pose,victoryPose(idleTime),smooth(timer/1.2));
+  if(resumeBlend<1)pose=blendPose(resumePose,pose,smooth(resumeBlend));
   return pose;
 }
 function drawCharacter(sample){
@@ -179,7 +216,7 @@ function drawCharacter(sample){
 function frame(now){
   const realDt=Math.max(0,(now-(lastTime||now))/1000),dt=Math.min(realDt,.035);lastTime=now;
   if(!paused){
-    time+=dt;if(started&&['playing','stumble','gap','leaping'].includes(mode))elapsed+=realDt;
+    time+=dt;resumeBlend=Math.min(1,resumeBlend+dt/.14);if(started&&['playing','stumble','gap','leaping'].includes(mode))elapsed+=realDt;
     if(mode==='gap'){
       const before=currentSample();
       timer+=realDt;
@@ -188,14 +225,12 @@ function frame(now){
       if(jumpReady&&timer>=EDGE_TIME)launch();
       else if(checkJump(null,timer)==='fall')fall('Too late for the second jump. Back to this scene’s checkpoint.');
     }else if(mode==='leaping'){
-      timer+=realDt;
-      if(timer>=leapDuration(track.tokens[index])){
-        mode='playing';timer=0;moveMix=0;pace=0;gaitMix=0;
-        input.disabled=false;feedback('Keep going. Space finishes the word.');input.focus({preventScroll:true});
-      }
+      timer+=realDt*flightRate;
+      landingFraction=lerp(landingFraction,clamp(target-index),ease(20,dt));
+      if(timer>=leapDuration(track.tokens[index]))land();
     }else if(mode==='falling'){
       timer+=dt;
-      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;metadata();}
+      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;metadata();input.disabled=false;feedback('Back at the checkpoint. Keep typing.');input.focus({preventScroll:true});}
     }else if(mode==='recover'){
       timer+=dt;if(timer>=1.1){mode='playing';moveMix=0;pace=0;gaitMix=0;input.disabled=false;feedback('Back at the checkpoint. The light is still waiting.');input.focus({preventScroll:true});}
     }else if(mode==='ending'){
@@ -245,7 +280,7 @@ function frame(now){
 input.addEventListener('input',onInput);input.addEventListener('keydown',e=>{
   if((e.key===' '||e.key==='Enter')&&!e.isComposing){
     e.preventDefault();if(e.repeat)return;
-    if(mode==='gap'){boost(e.key===' '?'Space':'Enter');return;}commit();
+    pressSpace(e.key);
   }
 });
 input.addEventListener('paste',e=>{e.preventDefault();feedback('One keystroke at a time. This adventure is yours.','warn');});
