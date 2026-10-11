@@ -122,6 +122,16 @@ function resize(){
 function drawWords(sample){
   ctx.font=`${fontSize}px "Space Mono",Consolas,monospace`;ctx.textBaseline='alphabetic';
   for(const {index:i,token:t} of visibleWords(track,index)){
+    if(t.jump){
+      const previous=track.tokens[i-1];
+      const cueX=(previous.endX+t.x)/2-cameraX,cueY=(previous.y+t.y)/2-cameraY+floor+fontSize*.8;
+      ctx.save();ctx.font=`italic ${Math.round(fontSize*.85)}px "Space Mono",Consolas,monospace`;
+      const cueWidth=ctx.measureText('jump').width,left=cueX-cueWidth/2;
+      const active=i===index&&['gap','leaping'].includes(mode);
+      ctx.fillStyle=active?orange:i<index?'#b0bdaa':'#a28669';ctx.fillText('jump',left,cueY);
+      if(active&&mode==='gap'&&typed){ctx.fillStyle='#785e45';ctx.fillText('jump',left,cueY);ctx.fillStyle=orange;ctx.fillText('jump'.slice(0,matchingPrefix(typed,'jump')),left,cueY);}
+      ctx.restore();
+    }
     const x=t.x-cameraX,y=t.y-cameraY+floor;
     if(x+t.width<-100||x>width+80||y<-60||y>height+55)continue;
     const active=i===index&&index<track.total;
