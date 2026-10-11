@@ -1,43 +1,28 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#f8f8f5">
-  <meta name="description" content="Your words are the ground beneath your feet. A playful stick figure typing adventure.">
-  <title>Typerun — a story under your feet</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='34' cy='12' r='8' fill='none' stroke='%23ef702f' stroke-width='5'/%3E%3Cpath d='M34 22L29 39L17 54M29 39L45 54M32 29L17 35M32 29L45 25' fill='none' stroke='%23ef702f' stroke-linecap='round' stroke-width='5'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="theme-color" content="#f8f8f5">
+<meta name="description" content="Type a hand-drawn adventure. Leap across words, climb into the clouds, and bring back the morning.">
+<title>Typerun — The Last Light</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='34' cy='12' r='8' fill='none' stroke='%23ef702f' stroke-width='5'/%3E%3Cpath d='M34 22L29 39L17 54M29 39L45 54M32 29L17 35M32 29L45 25' fill='none' stroke='%23ef702f' stroke-linecap='round' stroke-width='5'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="story.css">
 </head>
-<body>
-  <div class="shell">
-    <header>
-      <a class="brand" href="./" aria-label="Typerun home">type<span>run</span><span class="version">v1</span></a>
-      <div class="nav"><button id="sound" class="quiet" aria-pressed="false"><span id="sound-icon">♪</span> Sound off</button><button id="help" class="quiet">How to play <span class="help-mark">?</span></button></div>
-    </header>
-    <main>
-      <section class="intro">
-        <div><div class="eyebrow"><span class="little-line"></span> A STORY UNDER YOUR FEET</div><h1>Find your <em>flow.</em></h1><p>Keep typing. Keep moving. See where the story takes you.</p></div>
-        <div class="stats" aria-label="Session statistics">
-          <div><span id="wpm">0</span><label>WORDS / MIN</label></div>
-          <div><span id="accuracy">100<span class="unit">%</span></span><label>ACCURACY</label></div>
-          <div><span id="distance">0</span><label>WORDS TRAVELED</label></div>
-        </div>
-      </section>
-      <section class="game-card" aria-label="Typing game">
-        <div class="stage-meta"><div><span class="story-number" id="story-number">01</span><span id="story-title">The door in the woods</span></div><div id="state-label"><span class="status-dot"></span> Ready when you are</div></div>
-        <div class="canvas-wrap" id="canvas-wrap"><p class="sr-only" id="story-text"></p><canvas id="stage" aria-label="A stick figure runs across the story as you type."></canvas><div class="start-hint" id="start-hint"><span class="hint-arrow">↳</span> The adventure starts with you.<small>Click here and start typing.</small></div><div class="pause-overlay" id="pause-overlay" hidden><strong>Take a breath.</strong><span>Your story will be right here.</span><button class="primary" id="resume">Keep running <span>↗</span></button></div></div>
-        <div class="typing-dock">
-          <div class="input-label"><span class="key-icon">⌨</span><label for="typing">YOUR NEXT WORD</label></div>
-          <div class="input-line"><input id="typing" type="text" placeholder="the" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="feedback" aria-label="Type the story word, then press space"><span class="space-key">space <span>↵</span></span></div>
-          <div class="feedback-line"><span id="feedback" role="status" aria-live="polite">Type the story above. Press space after each word.</span><button id="restart" class="restart" title="Restart this session">↻ <span>Start over</span></button></div>
-        </div>
-      </section>
-      <section class="below-stage"><div class="rules"><span><i class="rule-dot green"></i>Your pace, his pace</span><span><i class="rule-dot amber"></i>Little typo? A little trip.</span><span><i class="rule-dot gray"></i>Big mistake? A new story.</span></div><button class="pause-button" id="pause"><kbd>esc</kbd> pause</button></section>
-      <footer><span>A small adventure, one word at a time.</span><span id="session-note">0 falls <b>·</b> best 0 wpm</span></footer>
-    </main>
-  </div>
-  <dialog id="help-dialog"><button class="dialog-close" id="close-help" aria-label="Close instructions">×</button><div class="eyebrow">WELCOME TO TYPERUN</div><h2>Words become<br>your way forward.</h2><p>Type the story from left to right. The little runner follows your keystrokes: faster typing, faster running. Stop typing and he stops too.</p><div class="help-rule"><span>01</span><p><strong>Space finishes a word.</strong> Backspace fixes it before you move on. Capitalization is flexible; punctuation follows the story.</p></div><div class="help-rule"><span>02</span><p><strong>Some mistakes are a stumble.</strong> Familiar typos like <code>teh → the</code> and adjacent letter swaps earn a trip, then you keep going.</p></div><div class="help-rule"><span>03</span><p><strong>Other mistakes open the floor.</strong> He drops, splats onto a fresh story, gets back up, and you begin again.</p></div><p class="help-foot">Finish a story to move to the next. Press Escape to pause. Your best speed stays on this device.</p><button class="primary" id="lets-go">Let’s go <span>↗</span></button></dialog>
-  <script type="module" src="game.js"></script>
-</body>
-</html>
-
+<body class="story-mode">
+<div class="shell">
+<header><a class="brand" href="./" aria-label="Typerun home">type<span>run</span><span class="version">v2</span></a><div class="nav"><a class="quiet classic-link" href="v1.html">Classic v1 <span>↗</span></a><button id="sound" class="quiet" aria-pressed="false">♪ Sound off</button><button id="help" class="quiet">How to play <span class="help-mark">?</span></button></div></header>
+<main>
+<section class="intro"><div><div class="eyebrow"><span class="little-line"></span> AN ANIMATED TYPING ADVENTURE</div><h1>The last <em>light.</em></h1><p>A sword through the ashes. A story into the sky.</p></div><div class="stats" aria-label="Session statistics"><div><span id="wpm">0</span><label>WORDS / MIN</label></div><div><span id="accuracy">100<span class="unit">%</span></span><label>ACCURACY</label></div><div><span id="distance">0</span><label>WORDS TYPED</label></div></div></section>
+<section class="game-card" aria-label="Typing adventure">
+<div class="stage-meta"><div><span class="story-number" id="story-number">01</span><span id="story-title">The ash woods</span></div><div id="state-label"><span class="status-dot"></span> A story waiting to wake</div></div>
+<div class="canvas-wrap" id="canvas-wrap"><p class="sr-only" id="story-text"></p><canvas id="stage" aria-label="An orange stick figure drags a sword through an animated story. Typing drives movement, jumps, and combat."></canvas><div class="scene-caption" id="scene-caption">A blade. A promise.</div><div class="start-hint" id="start-hint"><span class="hint-arrow">↳</span> Your words wake the world.<small>Type “the” below to begin.</small></div><div class="pause-overlay" id="pause-overlay" hidden><strong>Take a breath.</strong><span>The light can wait.</span><button class="primary" id="resume">Continue the story <span>↗</span></button></div><div class="ending-overlay" id="ending-overlay" hidden><div class="eyebrow">THE LAST LIGHT · FIN</div><h2>You brought<br>the morning back.</h2><p id="ending-stats"></p><button class="primary" id="replay">Tell it again <span>↗</span></button></div></div>
+<div class="journey-progress"><div id="progress-fill"></div></div>
+<div class="chapter-trail" aria-label="Story chapters"><span class="chapter active" aria-current="step"><b>01</b> Ash woods</span><span class="chapter"><b>02</b> Crossing</span><span class="chapter"><b>03</b> Tower</span><span class="chapter"><b>04</b> Keeper</span><span class="chapter"><b>05</b> Steel & sparks</span><span class="chapter"><b>06</b> Morning</span></div>
+<div class="typing-dock"><div class="input-label"><span class="key-icon">⌨</span><label for="typing">YOUR NEXT WORD</label><span id="progress-label">0% of the journey</span></div><div class="input-line"><input id="typing" type="text" placeholder="the" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="feedback" aria-label="Type the story word, then press space"><span class="space-key">space <span>↵</span></span></div><div class="feedback-line"><span id="feedback" role="status" aria-live="polite">Start with “the”. Space finishes each word.</span><button id="restart" class="restart" title="Restart this story">↻ <span>Start over</span></button></div></div>
+</section>
+<section class="below-stage"><div class="rules"><span><i class="rule-dot green"></i>Your words, his movement</span><span><i class="rule-dot amber"></i>Gaps become jumps</span><span><i class="rule-dot gray"></i>Each scene, a checkpoint</span></div><button class="pause-button" id="pause"><kbd>esc</kbd> pause</button></section>
+<details class="story-script"><summary>Read this scene <span>↓</span></summary><p id="chapter-copy"></p></details>
+<footer><span>Six scenes. One small promise.</span><span id="session-note">0 jumps · 0 falls · best 0 wpm</span></footer>
+</main></div>
+<dialog id="help-dialog"><button class="dialog-close" id="close-help" aria-label="Close instructions">×</button><div class="eyebrow">THE LAST LIGHT</div><h2>Write the way<br>to morning.</h2><p>Type the words from left to right. Your keystrokes carry a sword-dragging traveler through six hand-drawn scenes. Stop typing and the action settles to a stop, even during a leap.</p><div class="help-rule"><span>01</span><p><strong>Space finishes each word.</strong> Backspace fixes a mistake before submission. Capitalization is flexible; punctuation follows the story.</p></div><div class="help-rule"><span>02</span><p><strong>Type your way across.</strong> Spaced words are stepping stones. The numbers <code>1 2 3</code> send you up three levels. The camera follows with a little delay.</p></div><div class="help-rule"><span>03</span><p><strong>The fight stands its ground.</strong> Words replace one another beneath your feet. Typing them drives blocks, ducks, and sword swings.</p></div><div class="help-rule"><span>04</span><p><strong>The light gives second chances.</strong> Common typos earn a stumble. Bigger submitted mistakes drop you back to the beginning of the current scene.</p></div><p class="help-foot">Finish all six scenes to see the ending. Escape pauses. Reduced motion is supported. Classic v1 is available in the header.</p><button class="primary" id="lets-go">Wake the world <span>↗</span></button></dialog>
+<script type="module" src="game.js"></script>
+</body></html>
