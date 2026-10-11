@@ -1,5 +1,5 @@
 import {idlePose,blendPose,smooth} from './motion.js';
-import {dragPose,combatPose} from './story-motion.js';
+import {carryPose,combatPose} from './story-motion.js';
 import {clamp} from './story.js';
 const GUARD=combatPose(0);
 const BLOCK={...GUARD,head:[-2,-70],neck:[-3,-56],hip:[-9,-32],
@@ -23,9 +23,9 @@ export function battlePose(action,p,time=0){
     if(p<.2)return blendPose(BLOCK,WIND,smooth(p/.2));
     if(p<.6)return WIND;
     if(p<.8)return blendPose(WIND,SWEEP,smooth((p-.6)/.2));
-    return blendPose(SWEEP,dragPose(idlePose(time)),smooth((p-.8)/.2));
+    return blendPose(SWEEP,carryPose(idlePose(time)),smooth((p-.8)/.2));
   }
-  if(action==='bow')return dragPose(idlePose(time));
+  if(action==='bow')return carryPose(idlePose(time));
   if(action==='wing')return combatPose(p,'duck');
   if(action==='lunge')return combatPose(p,'parry');
   return GUARD;

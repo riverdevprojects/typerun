@@ -8,9 +8,12 @@ export {paintScene} from './landscape.js';
 export function drawLantern(ctx,x,y,time,lit=true){
   ctx.save();ctx.translate(x,y);const pulse=lit?.6+Math.sin(time*2)*.12:0;
   if(lit){const glow=ctx.createRadialGradient(0,-20,0,0,-20,45);glow.addColorStop(0,`rgba(246,189,88,${pulse*.3})`);glow.addColorStop(1,'rgba(246,189,88,0)');ctx.fillStyle=glow;ctx.fillRect(-45,-65,90,90);}
-  stroke(ctx,[[-10,-32],[10,-32],[8,-9],[-8,-9],[-10,-32]],'#b7a27c',1.7);
-  stroke(ctx,[[-7,-32],[-7,-40],[0,-44],[7,-40],[7,-32]],'#b7a27c',1.7);
-  circle(ctx,0,-21,3.5,lit?'#efaf51':'#d8d9cc',true);ctx.restore();
+  ctx.fillStyle=lit?'rgba(249,194,104,.19)':'rgba(243,247,235,.25)';ctx.fillRect(-8,-30,16,19);
+  stroke(ctx,[[-10,-32],[10,-32],[8,-9],[-8,-9],[-10,-32]],'#8c856b',2.6);
+  stroke(ctx,[[-7,-32],[-7,-40],[0,-44],[7,-40],[7,-32]],'#8c856b',2.3);
+  stroke(ctx,[[-11,-8],[11,-8],[-10,-8]],'#8c856b',2.8);
+  if(lit){ctx.fillStyle='#efaf51';ctx.beginPath();ctx.moveTo(0,-28-Math.sin(time*8)*1.5);ctx.quadraticCurveTo(8,-18,0,-15);ctx.quadraticCurveTo(-7,-17,0,-28);ctx.fill();circle(ctx,0,-19,2,'#fff0b3',true);}
+  ctx.restore();
 }
 export {drawDragon} from './dragon.js';
 export {drawBreath} from './dragon.js';

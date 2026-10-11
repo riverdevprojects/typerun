@@ -11,6 +11,9 @@ export function insertedKeys(previous,next,expected){
 }
 export function accuracy(correct,total){return total?correct/total*100:100;}
 export function belowMinimum(correct,total){return total>0&&correct*100<MIN_ACCURACY*total;}
+export function completedPunctuation(previous,next,expected){
+  return next.length===expected.length&&previous.length<next.length&&next.at(-1)===expected.at(-1)&&/[.,!?;:]/.test(next.at(-1)||'');
+}
 // Extra letters expand the word and the following terrain, as they expand Monkeytype's text layout.
 export function updateExtraLayout(track,index,typed,measure){
   const token=track.tokens[index];if(!token||token.kind==='fight'||token.stationary)return;

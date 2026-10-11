@@ -1,10 +1,10 @@
 import {idlePose,walkPose,runPose,runningBlend,strideLength,blendPose,tripPose,fallPose,landPose,risePose,drawFigure,advanceTravel,smooth} from './motion.js';
-import {STORY,createTrack,sampleTrack,checkpoint,clamp,lerp} from './story.js';
-import {dragPose,jumpPose,doubleJumpPose,jumpLandingPose,drawSword} from './story-motion.js';
+import {STORY,createTrack,sampleTrack,checkpoint,clamp,lerp,punctuationJump} from './story.js';
+import {carryPose,jumpPose,doubleJumpPose,jumpLandingPose} from './story-motion.js';
 import {paintScene,stroke,drawDragon,drawBreath,drawLantern,drawSignpost} from './scenery.js';
-import {fightPhase,battlePose,battleRotation,battleSword,fireStrength} from './choreography.js';
-import {letterFeedback,insertedKeys,accuracy,belowMinimum,updateExtraLayout,ERROR_COLOR,EXTRA_COLOR} from './typing-feedback.js';
-import {EDGE_TIME,checkJump,sampleEdge,sampleLeap,leapDuration,typingFlightRate,visibleWords} from './leap.js';
+import {fightPhase,battlePose,battleRotation,fireStrength} from './choreography.js';
+import {letterFeedback,insertedKeys,accuracy,belowMinimum,completedPunctuation,updateExtraLayout,ERROR_COLOR,EXTRA_COLOR} from './typing-feedback.js';
+import {sampleLeap,leapDuration,typingFlightRate,visibleWords} from './leap.js';
 const $=id=>document.getElementById(id),canvas=$('stage'),ctx=canvas.getContext('2d'),input=$('typing');
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches,orange='#ed722e';
 const ease=(rate,dt)=>1-Math.exp(-rate*dt);
@@ -14,7 +14,7 @@ let cameraX=0,cameraY=0,lastTime=0,time=0,elapsed=0,started=false;
 let gait=0,pace=0,gaitMix=0,moveMix=0,renderedPose=idlePose(),entryPose=renderedPose;
 let timer=0,fallOrigin=null,checkpointIndex=0,accepted=0,correct=0,attempted=0,falls=0,jumps=0;
 let sound=false,audio=null,best=0,particles=[],lastStats=0,sceneKind='forest',previousKind='forest',sceneFade=1;
-let edgeOrigin=null,leapOrigin=null,jumpReady=false;
+let leapOrigin=null,flightToken=null,lightCaught=false;
 let flightRate=1,landingFraction=0,deferredWord=null,deferredKeys=[],resumeBlend=1,resumePose=renderedPose;
 let landingAge=1;
 let spinAge=-1;
@@ -28,20 +28,19 @@ function recordKeys(keys){
 }
 function clearChapter(){
   const scene=track.chapters[track.tokens[Math.min(index,track.total-1)].chapter];
-  for(let i=scene.start;i<scene.end;i++){expandWord(i,'');wordHistory.delete(i);}
+  for(let i=scene.start;i<scene.end;i++){expandWord(i,'');wordHistory.delete(i);delete track.tokens[i].skipJump;}
   chapterCorrect=0;chapterInputs=0;
 }
 try{best=Number(localStorage.getItem('typerun-v2-best')||0)||0;}catch{}
 function expected(){return track.tokens[index]?.word||'';}
-function available(){return !paused&&['ready','playing','stumble','gap','leaping','recover'].includes(mode);}
-function inFlight(){return mode==='leaping'||mode==='gap'&&jumpReady;}
+function available(){return !paused&&['ready','playing','stumble','leaping','recover'].includes(mode)&&index<track.total;}
+function inFlight(){return mode==='leaping';}
 function interruptRecovery(){
   if(mode!=='recover')return;
   resumePose=renderedPose;resumeBlend=0;mode='playing';timer=0;moveMix=0;pace=0;gaitMix=0;
 }
 function currentSample(){
-  if(mode==='gap')return sampleEdge(track,index,edgeOrigin,timer);
-  if(mode==='leaping')return sampleLeap(track,index,leapOrigin,timer,reduced,landingFraction);
+  if(mode==='leaping')return sampleLeap(track,Math.min(index,track.total-1),leapOrigin,timer,reduced,landingFraction,flightToken);
   if(mode==='falling')return {...fallOrigin,y:fallOrigin.y+(reduced?150:340)*(timer/.8)**2};
   const sample=sampleTrack(track,progress,reduced,index),battle=battleState(sample);
   if(battle.action==='spin'&&!reduced)sample.y-=Math.sin(clamp((battle.p-.2)/.4)*Math.PI)*38;
@@ -54,8 +53,8 @@ function battleState(sample){
   return {action,p:action==='spin'?spinAge<0?Math.min(.19,p):1:p};
 }
 function lanternState(sample){
-  const cave=track.chapters.find(c=>c.kind==='cave'),dawn=track.chapters.find(c=>c.kind==='dawn');
-  return {carried:progress>=cave.pickup&&progress<dawn.hook,hung:progress>=dawn.hook};
+  const dawn=track.chapters.find(c=>c.kind==='dawn');
+  return {carried:progress<dawn.hook,hung:progress>=dawn.hook,lit:lightCaught};
 }
 function fall(message){
   fallOrigin=currentSample();falls++;checkpointIndex=checkpoint(track,index);entryPose=renderedPose;
@@ -64,28 +63,25 @@ function fall(message){
   spinAge=-1;
   burst(fallOrigin.x,fallOrigin.y+12,'',9);feedback(message,'error');status('A slip into the margins');tone(100,.3,.045);stats();
 }
-function launch(){
-  leapOrigin=currentSample();entryPose=renderedPose;mode='leaping';timer=0;jumps++;
+function launch(origin,type){
+  const token=track.tokens[Math.min(index,track.total-1)];
+  flightToken={...token,jumpType:type};
+  if(index===track.total)flightToken={...flightToken,x:token.endX};
+  leapOrigin=origin;entryPose=renderedPose;mode='leaping';timer=0;jumps++;
+  flightRate=1;landingFraction=index===track.total?1:0;
   progress=index;progressVelocity=0;input.disabled=false;
-  tone(track.tokens[index].number?440+Number(expected())*90:420,.09);stats();
-  if(track.tokens[index].superJump){burst(leapOrigin.x,leapOrigin.y-8,'',12);status('SUPER JUMP');feedback('Across the great divide!');tone(740,.2,.035);}
-}
-function boost(key){
-  if(paused||mode!=='gap'||jumpReady)return;
-  const result=checkJump(key,timer+Math.max(0,(performance.now()-lastTime)/1000));
-  if(result==='fall')fall('You missed the second jump. Back to this scene’s checkpoint.');
-  else if(result==='jump'){jumpReady=true;if(timer>=EDGE_TIME)launch();}
+  canvas.dataset.jumpKind=type;
+  tone(type==='double'?540:420,.09);status(type==='double'?'A full stop. A double jump.':'A little punctuation. A little leap.');stats();
 }
 function pressSpace(key){
   if(!available())return;
   if(deferredWord!==null){deferredKeys.push({key});input.value='';return;}
-  if(mode==='gap'&&!jumpReady){boost(key===' '?'Space':'Enter');return;}
   commit();
 }
 function land(){
-  progress=index+landingFraction;progressVelocity=0;mode='playing';timer=0;moveMix=0;pace=0;gaitMix=0;
+  progress=Math.min(track.total,index+landingFraction);progressVelocity=0;mode=index===track.total?'finishing':'playing';timer=0;moveMix=0;pace=0;gaitMix=0;
   landingAge=0;
-  input.disabled=false;feedback('Keep going. Space finishes the word.');
+  input.disabled=index===track.total;feedback('');flightToken=null;canvas.dataset.jumpKind='';
   if(deferredWord!==null){
     const word=deferredWord,keys=deferredKeys;deferredWord=null;deferredKeys=[];
     typed=word;input.value=word;commit(true);
@@ -129,45 +125,43 @@ function onInput(){
   if(!available()){input.value=typed;return;}
   const value=input.value;
   if(deferredWord!==null){deferredKeys.push({value});return;}
-  if(mode==='gap'&&!jumpReady){
-    boost(value===' '?'Space':'Letter');input.value='';
-    return;
-  }
   interruptRecovery();
   if(/\s/.test(value)){
     const trimmed=value.trim();if(/\s/.test(trimmed)){input.value=typed;feedback('One word at a time. Your typing tells the story.','warn');return;}
     const keys=insertedKeys(typed,trimmed,expected());typed=trimmed;input.value=typed;expandWord(index,typed);if(recordKeys(keys))commit();return;
   }
-  const next=value.slice(0,expected().length+12),keys=insertedKeys(typed,next,expected());
+  const next=value.slice(0,expected().length+12),keys=insertedKeys(typed,next,expected()),punctuated=completedPunctuation(typed,next,expected());
   typed=next;input.value=typed;if(typed)start();expandWord(index,typed);
   if(!recordKeys(keys))return;
   const fraction=clamp(typed.length/Math.max(1,expected().length));target=index+fraction;
   if(inFlight())flightRate=Math.max(flightRate,typingFlightRate(typed.length,expected().length));
   feedback('');
+  if(punctuated)commit(true);
 }
 function commit(spaceScored=false){
   if(!available()||!typed)return;start();const word=expected();
   if(!spaceScored&&!recordKeys([typed===word]))return;
   if(inFlight()){
     deferredWord=typed;input.value='';
-    flightRate=Math.max(flightRate,(leapDuration(track.tokens[index])-timer)/.06);
+    flightRate=Math.max(flightRate,(leapDuration(flightToken)-timer)/.06);
     return;
   }
-  if(mode==='gap')return;
   interruptRecovery();
   if(track.tokens[index].kind==='fight'){
     const t=track.tokens[index];
+    if(t.word==='breath.'){lightCaught=true;burst(t.endX+34,t.y-54,'',15);tone(820,.2,.035);}
     if(t.action==='spin'&&t.word==='spun'){spinAge=0;burst(t.endX+95,t.y-63,'',18);tone(150,.25,.05);}
     else if(['lunge','wing'].includes(t.action)){burst(t.endX+55,t.y-52,'',4);tone(420,.06,.025);}
   }
-  const origin=currentSample();
+  const origin=currentSample(),jumpType=punctuationJump(typed);
   wordHistory.set(index,typed);const oldChapter=track.tokens[index].chapter;
   accepted++;index++;target=index;typed='';input.value='';
+  if(index<track.total)track.tokens[index].skipJump=!jumpType;
   if(index<track.total&&track.tokens[index].chapter!==oldChapter){chapterCorrect=0;chapterInputs=0;}
-  if(index===track.total){mode='finishing';input.disabled=true;feedback('The last word. The first morning.');status('Let there be light');}
+  if(jumpType)launch(origin,jumpType);
+  else if(index===track.total){mode='finishing';input.disabled=true;feedback('The last word. The first morning.');status('Let there be light');}
   else{
-    if(track.tokens[index].jump){edgeOrigin=origin;entryPose=renderedPose;mode='gap';timer=0;jumpReady=track.tokens[index].superJump;flightRate=1;landingFraction=0;feedback('');}
-    else if(mode!=='stumble'){feedback('Keep going. Space finishes the word.');}
+    if(mode!=='stumble'){feedback('');}
   }
   metadata();stats();
 }
@@ -178,7 +172,7 @@ function reset(){
   index=0;typed='';progress=0;progressVelocity=0;target=0;mode='ready';paused=false;cameraX=0;cameraY=0;
   time=0;elapsed=0;started=false;gait=0;pace=0;gaitMix=0;moveMix=0;timer=0;accepted=0;correct=0;attempted=0;falls=0;jumps=0;particles=[];
   renderedPose=idlePose();entryPose=renderedPose;sceneKind='forest';previousKind='forest';sceneFade=1;
-  edgeOrigin=null;leapOrigin=null;jumpReady=false;
+  leapOrigin=null;flightToken=null;lightCaught=false;canvas.dataset.jumpKind='';
   flightRate=1;landingFraction=0;deferredWord=null;deferredKeys=[];resumeBlend=1;
   landingAge=1;
   spinAge=-1;
@@ -206,7 +200,7 @@ function drawWords(sample){
     const active=i===index&&index<track.total;
     const value=active?typed:wordHistory.get(i)||'',submitted=wordHistory.has(i),letters=letterFeedback(t.word,value);
     for(const [j,letter] of letters.entries()){
-      ctx.fillStyle=letter.state==='incorrect'?ERROR_COLOR:letter.state==='extra'?EXTRA_COLOR:letter.state==='correct'?'#34423b':t.word==='jumped'?orange:active?'#71816b':'#8d9c86';
+      ctx.fillStyle=letter.state==='incorrect'?ERROR_COLOR:letter.state==='extra'?EXTRA_COLOR:letter.state==='correct'?'#34423b':/[.,!?;:]/.test(letter.char)?orange:active?'#71816b':'#8d9c86';
       ctx.fillText(letter.char,x+j*charWidth,y+fontSize*.8);
     }
     if(submitted&&value!==t.word)stroke(ctx,[[x,y+fontSize+4],[x+Math.max(t.width,value.length*charWidth),y+fontSize+4]],ERROR_COLOR,2);
@@ -220,16 +214,17 @@ function drawWords(sample){
 function poseFor(sample){
   const idleTime=reduced?0:time;
   const travel=blendPose(walkPose(gait),runPose(gait,pace/150),gaitMix);
-  let pose=dragPose(blendPose(idlePose(idleTime),travel,moveMix));
-  if(mode==='gap'&&!reduced)pose=jumpPose(pose,Math.min(.5,sample.p));
-  if(mode==='leaping'&&!reduced)pose=doubleJumpPose(entryPose,sample.p,dragPose(idlePose(idleTime)));
+  let pose=carryPose(blendPose(idlePose(idleTime),travel,moveMix));
+  if(mode==='leaping'&&!reduced){
+    pose=flightToken.jumpType==='double'&&sample.p>=.32?doubleJumpPose(jumpPose(entryPose,.45),(sample.p-.32)/.68,carryPose(idlePose(idleTime))):jumpPose(entryPose,flightToken.jumpType==='double'?sample.p/.32*.45:sample.p);
+  }
   if(mode==='playing'&&landingAge<.18&&!reduced)pose=jumpLandingPose(pose,1-smooth(landingAge/.18));
   const battle=battleState(sample);
-  if(sample.token.kind==='fight'||battle.action==='spin')pose=blendPose(pose,battlePose(battle.action,battle.p,idleTime),smooth(sample.token.local===0?sample.p*4:1));
-  if(lanternState(sample).carried)pose={...pose,frontElbow:[10,-51],frontHand:[19,-63]};
+  if(sample.token.kind==='fight'&&mode!=='leaping'||battle.action==='spin')pose=blendPose(pose,battlePose(battle.action,battle.p,idleTime),smooth(sample.token.local===0?sample.p*4:1));
+  if(lanternState(sample).carried&&sample.token.kind!=='fight'&&battle.action!=='spin')pose=carryPose(pose);
   if(sample.token.stationary){
     const dawn=track.chapters[sample.token.chapter],hang=smooth((progress-dawn.hang)/Math.max(1,dawn.hook-dawn.hang));
-    pose=blendPose(pose,{...dragPose(idlePose(idleTime)),frontElbow:[12,-61],frontHand:[22,-77]},hang*(1-smooth(progress-dawn.hook)));
+    pose=blendPose(pose,{...carryPose(idlePose(idleTime)),frontElbow:[12,-61],frontHand:[22,-77]},hang*(1-smooth(progress-dawn.hook)));
   }
   if(mode==='stumble')pose=tripPose(entryPose,pose,timer/.82);
   if(mode==='falling')pose=fallPose(entryPose,timer/.8,reduced);
@@ -241,9 +236,9 @@ function poseFor(sample){
 function drawCharacter(sample){
   const x=sample.x-cameraX,y=sample.y-cameraY+floor;
   let pose=poseFor(sample);if(!paused)renderedPose=pose;else pose=renderedPose;
-  if(mode==='leaping'&&!reduced&&sample.p<.42){
+  if(mode==='leaping'&&flightToken.jumpType==='double'&&!reduced&&sample.p>=.32&&sample.p<.65){
     // A broken pressure ring stays where the second jump kicked off, rather than following the feet.
-    const p=sample.p/.42,r=12+32*smooth(p),bx=leapOrigin.x-cameraX,by=leapOrigin.y-cameraY+floor-5;
+    const p=(sample.p-.32)/.33,r=12+32*smooth(p),bx=sample.x-cameraX,by=leapOrigin.y-cameraY+floor-flightToken.arc*.45-5;
     ctx.save();ctx.globalAlpha=smooth(p/.15)*(1-p)*.8;
     ctx.strokeStyle=orange;ctx.lineWidth=1.8;
     for(const a of [.15,Math.PI+.15]){ctx.beginPath();ctx.ellipse(bx,by,r,r*.32,-.22,a,a+2.35);ctx.stroke();}
@@ -263,16 +258,7 @@ function drawCharacter(sample){
     ctx.globalAlpha=strength*.25;ctx.beginPath();ctx.moveTo(-51,-18);ctx.quadraticCurveTo(-47,-49,-27,-59);ctx.stroke();
     ctx.globalAlpha=1;
   }
-  if(mode==='leaping'&&sample.token.superJump&&!reduced){
-    ctx.globalAlpha=Math.sin(sample.p*Math.PI)*.55;
-    for(let i=0;i<3;i++)stroke(ctx,[[-40-i*7,-58+i*17],[-80-i*13,-58+i*17]],orange,1.7);
-    ctx.globalAlpha=1;
-  }
-  if(mode==='ending'||mode==='complete'){
-    drawSword(ctx,[-22,-54],Math.PI/2,51);
-  }else if(sample.token.kind==='fight'||battle.action==='spin'){
-    const otherHand=['fire','spin','bow'].includes(battle.action);
-    drawSword(ctx,otherHand?pose.backHand:pose.frontHand,battleSword(battle.action,battle.p),battle.action==='spin'?94:63);
+  if(sample.token.kind==='fight'||battle.action==='spin'){
     if(!reduced&&battle.action==='spin'&&battle.p>.2&&battle.p<.85){
       const alpha=Math.sin(clamp((battle.p-.2)/.65)*Math.PI);
       ctx.globalAlpha=alpha*.2;ctx.strokeStyle='#ec9345';ctx.lineWidth=15;
@@ -280,16 +266,10 @@ function drawCharacter(sample){
       ctx.globalAlpha=alpha*.8;ctx.strokeStyle='#e3974d';ctx.lineWidth=2;ctx.stroke();
       ctx.globalAlpha=alpha*.5;ctx.lineWidth=1;ctx.beginPath();ctx.arc(3,-38,125,-2.15,.5);ctx.stroke();ctx.globalAlpha=1;
     }
-    if(battle.action==='fire'){
-      ctx.globalAlpha=fireStrength(battle.p)*.8;ctx.strokeStyle='#e2b06a';ctx.lineWidth=2;
-      ctx.beginPath();ctx.arc(pose.frontHand[0]+3,pose.frontHand[1]+11,18,-1.3,1.1);ctx.stroke();ctx.globalAlpha=1;
-    }
-  }else{
-    const hand=pose.backHand,angle=mode==='falling'?2.6+timer:Math.atan2(-4-hand[1],-65-hand[0]);
-    drawSword(ctx,hand,angle,54);
-    if(lanternState(sample).carried)drawLantern(ctx,pose.frontHand[0]+3,pose.frontHand[1]+44,reduced?0:time,true);
-    if(!reduced&&moveMix>.4&&sample.air<.08&&Math.sin(time*25)>.4){ctx.globalAlpha=.35;stroke(ctx,[[-68,-5],[-74,-10]],'#dfa269',1);ctx.globalAlpha=1;}
   }
+  const lantern=lanternState(sample),transfer=battle.action==='spin'?smooth((battle.p-.8)/.2):1;
+  const hand=[lerp(pose.backHand[0],pose.frontHand[0],transfer),lerp(pose.backHand[1],pose.frontHand[1],transfer)];
+  if(lantern.carried)drawLantern(ctx,hand[0]+3,hand[1]+44,reduced?0:time,lantern.lit);
   drawFigure(ctx,pose,orange);ctx.restore();
 }
 function frame(now){
@@ -297,21 +277,14 @@ function frame(now){
   if(!paused){
     time+=dt;landingAge+=dt;
     if(spinAge>=0){const before=spinAge;spinAge+=dt;if(before<.84&&spinAge>=.84){const fight=track.chapters.find(c=>c.kind==='fight');burst(track.tokens[fight.start].endX+165,fight.y-70,'',24);tone(110,.3,.06);}}
-    resumeBlend=Math.min(1,resumeBlend+dt/.14);if(started&&['playing','stumble','gap','leaping'].includes(mode))elapsed+=realDt;
-    if(mode==='gap'){
-      const before=currentSample();
-      timer+=realDt;
-      const after=currentSample();
-      if(!reduced)gait+=Math.abs(after.x-before.x)/strideLength(gaitMix)*Math.PI*2;
-      if(jumpReady&&timer>=EDGE_TIME)launch();
-      else if(checkJump(null,timer)==='fall')fall('Too late for the second jump. Back to this scene’s checkpoint.');
-    }else if(mode==='leaping'){
+    resumeBlend=Math.min(1,resumeBlend+dt/.14);if(started&&['playing','stumble','leaping'].includes(mode))elapsed+=realDt;
+    if(mode==='leaping'){
       timer+=realDt*flightRate;
       landingFraction=lerp(landingFraction,clamp(target-index),ease(20,dt));
-      if(timer>=leapDuration(track.tokens[index]))land();
+      if(timer>=leapDuration(flightToken))land();
     }else if(mode==='falling'){
       timer+=dt;
-      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);clearChapter();index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;metadata();stats();input.disabled=false;feedback('');input.focus({preventScroll:true});}
+      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);clearChapter();index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;flightToken=null;canvas.dataset.jumpKind='';lightCaught=index>=track.chapters.find(c=>c.kind==='fight').end;metadata();stats();input.disabled=false;feedback('');input.focus({preventScroll:true});}
     }else if(mode==='recover'){
       timer+=dt;if(timer>=1.1){mode='playing';moveMix=0;pace=0;gaitMix=0;input.disabled=false;feedback('Back at the checkpoint. The light is still waiting.');input.focus({preventScroll:true});}
     }else if(mode==='ending'){
@@ -334,7 +307,7 @@ function frame(now){
     const anchor=sample.token.kind==='fight'?width*(width<550?.22:.35):width*.3;
     cameraX=lerp(cameraX,Math.max(0,sample.x-anchor),ease(7,dt));
     const next=track.tokens[Math.min(index,track.total-1)];
-    if(!next.superJump||!['gap','leaping'].includes(mode))cameraX=clamp(cameraX,Math.max(0,next.x+next.width-width+28),Math.max(0,next.x-28));
+    cameraX=clamp(cameraX,Math.max(0,next.x+next.width-width+28),Math.max(0,next.x-28));
     cameraY=lerp(cameraY,sample.y,ease(reduced?25:3.6,dt));
     if(sceneKind!==sample.token.kind){previousKind=sceneKind;sceneKind=sample.token.kind;sceneFade=0;}
     sceneFade=Math.min(1,sceneFade+dt*2.8);
@@ -351,19 +324,13 @@ function frame(now){
     drawDragon(ctx,x,y,{time:reduced?0:time,p:battle.p,action:battle.action,resolve,reduced,scale,reveal:clamp((progress-approach.start)/(approach.end-approach.start)*2)});
     if(battle.action==='fire'){
       const s=width<550?.92:1.1,pose=poseFor(sample);
-      drawBreath(ctx,[x-102*scale,y-123*scale],[sample.x-cameraX+(pose.frontHand[0]+3)*s,sample.y-cameraY+floor+(pose.frontHand[1]+10)*s],{time:reduced?0:time,strength:fireStrength(battle.p),reduced});
+      drawBreath(ctx,[x-102*scale,y-123*scale],[sample.x-cameraX+(pose.frontHand[0]+3)*s,sample.y-cameraY+floor+(pose.frontHand[1]+23)*s],{time:reduced?0:time,strength:fireStrength(battle.p),reduced});
     }
     if(sample.token.kind==='fight'){
       ctx.font='9px "DM Sans",sans-serif';ctx.fillStyle='#758970';ctx.fillText('THE MOUNTAIN KEEPER',x-60,y-215*scale);
       const hp=clamp((progress-fight.start)/(fight.end-fight.start));
       stroke(ctx,[[x-60,y-204*scale],[x+65,y-204*scale]],'#d5decf',2);stroke(ctx,[[x-60,y-204*scale],[x-60+125*(1-hp),y-204*scale]],'#809375',2);
     }
-  }
-  if(sample.token.kind==='cave'){
-    const cave=track.chapters[sample.token.chapter],x=cave.pickupX-cameraX+20,y=cave.y-cameraY+floor;
-    stroke(ctx,[[x-21,y+12],[x-19,y-5],[x+18,y-5],[x+20,y+12]],'#9ab095',2);
-    stroke(ctx,[[x-16,y-7],[x+16,y-7]],'#c0cdb2',4);
-    if(progress<cave.pickup)drawLantern(ctx,x,y-5,reduced?0:time,true);
   }
   if(sample.token.kind==='dawn'){
     const x=track.tokens.at(-1).endX-cameraX,y=dawn.y-cameraY+floor;
@@ -379,7 +346,7 @@ function frame(now){
   for(const p of particles){ctx.globalAlpha=1-p.age/.75;ctx.fillStyle='#dca56c';if(p.letter){ctx.font='17px "Space Mono",monospace';ctx.fillText(p.letter,p.x-cameraX,p.y-cameraY+floor);}else stroke(ctx,[[p.x-cameraX,p.y-cameraY+floor],[p.x-cameraX-p.vx*.04,p.y-cameraY+floor-p.vy*.04]],'#dda569',1.5);}ctx.globalAlpha=1;
   if(!paused&&mode==='playing'){
     const action=battleState(sample).action;
-    status(sample.token.kind==='fight'?({guard:'Stand your ground',lunge:'Claws against steel',wing:'Beneath the wings',fire:'Hold back the fire',spin:'Turn the tide',bow:'The keeper bows'})[action]:sample.token.kind==='cave'?'A light in the stone':sample.token.kind==='dawn'?'The final ridge':sample.token.number?'Up into the clouds':sample.token.jump?'Across the ravine':'Up the mountain');
+    status(sample.token.kind==='fight'?({guard:'Stand your ground',lunge:'Claws against the lantern',wing:'Beneath the wings',fire:'Catch the keeper’s breath',spin:'Turn the light into a wave',bow:'The keeper bows'})[action]:sample.token.kind==='cave'?'The flame leads the way':sample.token.kind==='dawn'?'The final ridge':'Up the mountain');
   }
   if(now-lastStats>500){if(mode!=='complete')stats();lastStats=now;}
   requestAnimationFrame(frame);

@@ -2,6 +2,9 @@ import {idlePose,blendPose,smooth} from './motion.js';
 export function dragPose(pose){
   return {...pose,backShoulder:[2,pose.neck[1]+3],backElbow:[-10,-41],backHand:[-17,-27]};
 }
+export function carryPose(pose){
+  return {...pose,frontShoulder:[pose.neck[0]+2,pose.neck[1]+3],frontElbow:[pose.neck[0]+15,-49],frontHand:[pose.neck[0]+23,-62]};
+}
 const TUCK={...idlePose(),head:[11,-74],neck:[7,-60],hip:[-3,-37],
   backShoulder:[5,-57],backElbow:[-9,-45],backHand:[-19,-38],
   frontShoulder:[4,-57],frontElbow:[18,-63],frontHand:[26,-70],

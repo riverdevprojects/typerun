@@ -18,9 +18,9 @@ test('fire transitions into the spin continuously and its final pose settles int
   assert.equal(battleSword('fire',1),battleSword('spin',0));
   for(const action of ['guard','lunge','wing','fire','spin','bow'])for(let p=0;p<=1;p+=.01)assert.ok(Object.values(battlePose(action,p)).flat().every(Number.isFinite));
 });
-test('the lantern is found in the cave before it can be hung, and the final words stay at the signpost',()=>{
+test('the dragon breath lights the carried lantern before the cave and summit',()=>{
   const cave=track.chapters.find(c=>c.kind==='cave'),dawn=track.chapters.find(c=>c.kind==='dawn');
-  assert.equal(track.tokens[cave.pickup-1].word,'lantern.');assert.ok(cave.pickup<cave.end&&cave.end===dawn.start);
+  const fight=track.chapters.find(c=>c.kind==='fight');assert.equal(track.tokens[fight.capture-1].word,'breath.');assert.ok(fight.capture<fight.end&&fight.end===cave.start);assert.ok(track.chapters[0].text.includes('empty lantern'));assert.ok(!track.chapters.some(c=>c.text.includes('sword')));
   assert.ok(dawn.hang<dawn.hook&&dawn.hook<dawn.end);
   const ending=track.tokens.slice(dawn.hang,dawn.end);assert.ok(ending.every(t=>t.stationary));assert.equal(new Set(ending.map(t=>t.endX)).size,1);
 });

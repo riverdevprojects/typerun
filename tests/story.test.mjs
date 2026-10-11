@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {STORY,createTrack,sampleTrack,checkpoint} from '../dist/story.js';
+import {STORY,createTrack,sampleTrack,checkpoint,punctuationJump} from '../dist/story.js';
 import {idlePose} from '../dist/motion.js';
 import {jumpPose,doubleJumpPose,jumpLandingPose,dragPose,combatPose,swordAngle} from '../dist/story-motion.js';
-import {EDGE_TIME,JUMP_WINDOW,checkJump,sampleEdge,sampleLeap,leapDuration,typingFlightRate,visibleWords} from '../dist/leap.js';
+import {jumpLift,sampleLeap,leapDuration,typingFlightRate,visibleWords} from '../dist/leap.js';
 const track=createTrack(word=>word.length*17);
 const near=(a,b)=>assert.ok(Math.abs(a-b)<.001,`${a} differs from ${b}`);
 test('one complete mountain story has seven scenes, a cave, and three numbered ascents',()=>{
@@ -15,46 +15,31 @@ test('one complete mountain story has seven scenes, a cave, and three numbered a
   assert.deepEqual(track.chapters.map(c=>c.kind),['forest','bridge','tower','approach','fight','cave','dawn']);
   for(let i=1;i<track.total;i++)assert.ok(track.tokens[i].y<=track.tokens[i-1].y+.001);
 });
-test('solid ground joins continuously; gap words start on their landing platform',()=>{
+test('only punctuation creates jumps and wide gaps; numbers and plain words stay connected',()=>{
+  assert.equal(punctuationJump('word.'),'double');assert.equal(punctuationJump('word,'),'single');
+  for(const word of ['jumped','1','2','3','plain'])assert.equal(punctuationJump(word),null);
   for(let i=1;i<track.total;i++){
-    if(track.tokens[i].jump){
-      const t=track.tokens[i],start=sampleTrack(track,i),half=sampleTrack(track,i+.5);
-      near(start.x,t.x);near(start.y,t.y);near(half.y,t.y);continue;
-    }
-    const before=sampleTrack(track,i-1e-7),after=sampleTrack(track,i+1e-7);
-    near(before.x,after.x);near(before.y,after.y);
-    const end=sampleTrack(track,i);near(end.x,track.tokens[i-1].endX);near(end.y,track.tokens[i-1].y);
+    const t=track.tokens[i],previous=track.tokens[i-1];assert.equal(t.jumpType,punctuationJump(previous.word));
+    if(t.kind==='fight'||t.stationary)continue;
+    assert.equal(t.x-previous.endX,t.jumpType==='double'?150:t.jumpType==='single'?75:22);
+    if(!t.jump){const before=sampleTrack(track,i-1e-7),after=sampleTrack(track,i+1e-7);near(before.x,after.x);near(before.y,after.y);}
   }
-  const end=sampleTrack(track,track.total);near(end.x,track.tokens.at(-1).endX);near(end.y,track.tokens.at(-1).y);
 });
-test('leaps finish on a clock without another keystroke, including numbered ascents',()=>{
+test('single and double punctuation jumps finish on a clock at continuous landing positions',()=>{
   for(const [i,t] of track.tokens.entries())if(t.jump){
-    const prev=track.tokens[i-1],origin={x:prev.endX,y:prev.y},duration=leapDuration(t);
-    const edge=sampleEdge(track,i,origin,EDGE_TIME);near(edge.x,prev.endX);assert.ok(edge.y<prev.y,'the first Space has already lifted the runner');
-    const start=sampleLeap(track,i,edge,0),mid=sampleLeap(track,i,edge,duration/2),end=sampleLeap(track,i,edge,duration);
-    near(start.x,prev.endX);near(start.y,edge.y);near(end.x,t.x);near(end.y,t.y);
-    near(end.x,sampleTrack(track,i).x);near(end.y,sampleTrack(track,i).y);
-    assert.ok(mid.y<Math.min(start.y,end.y)-30);assert.ok(t.x-prev.endX>=60);
-    const quiet=sampleLeap(track,i,edge,duration/2,true);near(quiet.y,(start.y+end.y)/2);
-    assert.deepEqual(sampleLeap(track,i,edge,duration+5),end);
+    const previous=track.tokens[i-1],origin={x:previous.endX,y:previous.y},duration=leapDuration(t);
+    const start=sampleLeap(track,i,origin,0),mid=sampleLeap(track,i,origin,duration/2),end=sampleLeap(track,i,origin,duration);
+    near(start.x,origin.x);near(start.y,origin.y);near(end.x,sampleTrack(track,i).x);near(end.y,sampleTrack(track,i).y);
+    assert.ok(mid.y<Math.min(start.y,end.y)-25);
+    const quiet=sampleLeap(track,i,origin,duration/2,true);near(quiet.y,(start.y+end.y)/2);
+    assert.deepEqual(sampleLeap(track,i,origin,duration+5),end);
   }
 });
-test('a second Space boosts the first hop; missed or wrong inputs fail',()=>{
-  assert.equal(checkJump(null,.5),'waiting');
-  assert.equal(checkJump('Space',JUMP_WINDOW-.001),'jump');
-  for(const key of ['Enter','jump','Letter'])assert.equal(checkJump(key,.2),'fall');
-  for(const key of [null,'Space'])assert.equal(checkJump(key,JUMP_WINDOW),'fall');
-  const edge=sampleEdge(track,26,{x:track.tokens[25].endX,y:0},JUMP_WINDOW-.001);
-  assert.ok(edge.x>track.tokens[25].endX&&edge.y>track.tokens[25].y+35,'a slow entry keeps moving down between the words');
-});
-test('jumped launches a super jump over a gap eight times wider than the regular crossing',()=>{
-  const i=track.tokens.findIndex(t=>t.superJump),t=track.tokens[i],previous=track.tokens[i-1];
-  assert.equal(previous.word,'jumped');assert.equal(t.word,'across');
-  assert.equal(t.x-previous.endX,640);assert.ok(t.arc>150);assert.ok(leapDuration(t)>1);
-  assert.equal(track.tokens.filter(t=>t.superJump).length,1);
-  const origin={x:previous.endX,y:previous.y},mid=sampleLeap(track,i,origin,leapDuration(t)/2);
-  assert.ok(mid.x>origin.x+300&&mid.y<origin.y-150);
-  const end=sampleLeap(track,i,origin,leapDuration(t));near(end.x,t.x);near(end.y,t.y);
+test('a period has a second upward impulse without touching the ground between jumps',()=>{
+  assert.equal(jumpLift(0,'double'),0);near(jumpLift(1,'double'),0);
+  assert.ok(jumpLift(.32,'double')>0);assert.ok(jumpLift(.5,'double')>jumpLift(.32,'double'));
+  near(jumpLift(.32-1e-7,'double'),jumpLift(.32+1e-7,'double'));
+  assert.equal(leapDuration({jumpType:'double'}),.82);assert.equal(leapDuration({jumpType:'single'}),.48);
 });
 test('typing in flight advances the arc faster and lands at the typed part of the word',()=>{
   const i=track.tokens.findIndex(t=>t.jump),token=track.tokens[i],origin={x:token.fromX,y:token.fromY};
