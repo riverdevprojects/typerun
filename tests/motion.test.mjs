@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {idlePose,walkPose,runPose,runningBlend,tripPose,fallPose,landPose,risePose,advanceTravel} from '../dist/motion.js';
+import {idlePose,walkPose,runPose,sprintPose,dashPose,speedTier,gaitCadence,runningBlend,tripPose,fallPose,landPose,risePose,advanceTravel} from '../dist/motion.js';
 const near=(a,b,tolerance=1e-7)=>assert.ok(Math.abs(a-b)<tolerance,`${a} differs from ${b}`);
 const compare=(a,b,tolerance=1e-7)=>Object.keys(a).forEach(joint=>a[joint].forEach((v,i)=>near(v,b[joint][i],tolerance)));
 
@@ -10,6 +10,18 @@ test('idle arms hang outside the torso and feet stay above the words',()=>{
     assert.ok(pose.frontHand[0]<pose.hip[0]);assert.ok(pose.backHand[0]>pose.hip[0]);
     assert.ok(pose.frontHand[1]>pose.frontElbow[1]);assert.ok(pose.backHand[1]>pose.backElbow[1]);
     assert.ok(pose.frontFoot[1]<=-3&&pose.backFoot[1]<=-3);
+  }
+});
+test('breathing idle loops smoothly with a visible chest rise and planted feet',()=>{
+  const inhale=idlePose(.95),exhale=idlePose(2.85);
+  assert.ok(exhale.head[1]-inhale.head[1]>=3);
+  assert.ok(exhale.neck[1]-inhale.neck[1]>2);
+  compare(idlePose(0),idlePose(3.8));
+  const h=1e-4,left=idlePose(-h),center=idlePose(0),right=idlePose(h);
+  Object.keys(center).forEach(k=>center[k].forEach((v,i)=>near((v-left[k][i])/h,(right[k][i]-v)/h,.001)));
+  for(let t=0;t<3.8;t+=.1){
+    assert.deepEqual(idlePose(t).frontFoot,center.frontFoot);
+    assert.deepEqual(idlePose(t).backFoot,center.backFoot);
   }
 });
 test('running cycle wraps smoothly and planted feet do not penetrate text',()=>{
@@ -45,6 +57,32 @@ test('slow travel selects walking and fast travel selects running continuously',
   assert.equal(runningBlend(30),0);assert.equal(runningBlend(120),1);
   for(let speed=52;speed<96;speed+=.1)assert.ok(runningBlend(speed+.1)>=runningBlend(speed));
   near(runningBlend(52-1e-5),runningBlend(52+1e-5));near(runningBlend(96-1e-5),runningBlend(96+1e-5));
+});
+test('sprint starts above 100 WPM and dash starts at 120 WPM',()=>{
+  for(const wpm of [0,70,99,100])assert.equal(speedTier(wpm),'normal');
+  for(const wpm of [101,110,119])assert.equal(speedTier(wpm),'sprint');
+  for(const wpm of [120,121,180])assert.equal(speedTier(wpm),'dash');
+  assert.ok(gaitCadence(1,0)>gaitCadence(0,0));
+  assert.ok(gaitCadence(1,1)>gaitCadence(1,0));
+});
+test('sprint and dash have progressively stronger silhouettes and smooth clear-of-text cycles',()=>{
+  const poses=[runPose,sprintPose,dashPose];
+  const measurements=poses.map(make=>{
+    let reach=0,lift=0,airborne=0;
+    compare(make(0),make(Math.PI*2));
+    const h=1e-4,left=make(-h),center=make(0),right=make(h);
+    Object.keys(center).forEach(k=>center[k].forEach((v,i)=>near((v-left[k][i])/h,(right[k][i]-v)/h,.1)));
+    for(let p=0;p<Math.PI*2;p+=.01){
+      const pose=make(p);
+      assert.ok(Object.values(pose).flat().every(Number.isFinite));
+      assert.ok(pose.frontFoot[1]<=-3&&pose.backFoot[1]<=-3);
+      reach=Math.max(reach,Math.abs(pose.frontFoot[0]));lift=Math.max(lift,-pose.frontFoot[1]-3);
+      if(pose.frontFoot[1]<-4&&pose.backFoot[1]<-4)airborne++;
+      compare(tripPose(pose,idlePose(),0),pose);compare(fallPose(pose,0),pose);
+    }
+    return {reach,lift,airborne,lean:center.neck[0]-center.hip[0]};
+  });
+  for(let i=1;i<measurements.length;i++)for(const metric of ['reach','lift','airborne','lean'])assert.ok(measurements[i][metric]>measurements[i-1][metric],metric);
 });
 test('get-up joins the landing pose and ends in idle without a pop',()=>{
   const entry=runPose(1);

@@ -7,10 +7,11 @@ export function blendPose(a,b,t){
 }
 
 export function idlePose(time=0){
-  const breath=Math.sin(time*1.7)*.45;
-  return {head:[2,-72+breath],neck:[1,-58+breath],hip:[-1,-34],
-    backShoulder:[3,-55+breath],backElbow:[10,-42+breath],backHand:[12,-29+breath],
-    frontShoulder:[-2,-55+breath],frontElbow:[-8,-42+breath],frontHand:[-10,-28+breath],
+  const phase=time*TAU/3.8,breath=Math.sin(phase),relax=Math.sin(phase-.28);
+  // The upper body rises on the inhale. Hands follow a little later; feet stay planted.
+  return {head:[2+relax*.3,-72-breath*1.6],neck:[1,-58-breath*1.35],hip:[-1,-34-breath*.22],
+    backShoulder:[3+breath*.25,-55-breath*1.2],backElbow:[10+relax*.5,-42-relax*.85],backHand:[12+relax*.65,-29-relax*.55],
+    frontShoulder:[-2-breath*.25,-55-breath*1.2],frontElbow:[-8-relax*.5,-42-relax*.85],frontHand:[-10-relax*.65,-28-relax*.55],
     backKnee:[-6,-18],backFoot:[-8,-3],frontKnee:[5,-18],frontFoot:[8,-3]};
 }
 
@@ -77,6 +78,44 @@ export function runPose(phase,intensity=1){
     frontShoulder,frontElbow:frontArm.elbow,frontHand:frontArm.hand,
     backKnee:back.knee,backFoot:back.foot,frontKnee:front.knee,frontFoot:front.foot};
 }
+const SPRINT_LEG=[
+  {knee:[15,-24],foot:[29,-3]},
+  {knee:[10,-18],foot:[15,-3]},
+  {knee:[-4,-20],foot:[-3,-3]},
+  {knee:[-20,-24],foot:[-27,-8]},
+  {knee:[-23,-29],foot:[-35,-23]},
+  {knee:[-9,-24],foot:[-23,-39]},
+  {knee:[18,-31],foot:[2,-34]},
+  {knee:[23,-29],foot:[30,-16]}
+];
+const DASH_LEG=[
+  {knee:[18,-25],foot:[34,-3]},
+  {knee:[12,-19],foot:[17,-3]},
+  {knee:[-5,-22],foot:[-4,-6]},
+  {knee:[-24,-27],foot:[-34,-17]},
+  {knee:[-26,-32],foot:[-40,-34]},
+  {knee:[-9,-28],foot:[-24,-45]},
+  {knee:[23,-35],foot:[5,-38]},
+  {knee:[28,-30],foot:[36,-19]}
+];
+// Thresholds use the same rounded session WPM as the visible counter.
+export function speedTier(wpm){return wpm>=120?'dash':wpm>100?'sprint':'normal';}
+export function gaitCadence(sprintMix,dashMix){return 1+clamp(sprintMix)*.22+clamp(dashMix)*.28;}
+function fastPose(phase,dash){
+  const bounce=Math.cos(phase*2)*(dash?2.2:1.8);
+  const back=legAt(phase+Math.PI,dash?DASH_LEG:SPRINT_LEG,dash?.24:.3,dash?42:36);
+  const front=legAt(phase,dash?DASH_LEG:SPRINT_LEG,dash?.24:.3,dash?42:36);
+  const neck=[dash?20:13,(dash?-49:-54)+bounce],hip=[dash?-7:-4,-34+bounce];
+  const backShoulder=[neck[0]+2,neck[1]+2],frontShoulder=[neck[0]-2,neck[1]+2];
+  const swing=Math.cos(phase)*(dash?1.25:1.08),drive=dash?-.6:-.42,bend=dash?1.5:1.3;
+  const backArm=arm(backShoulder,swing+drive,bend),frontArm=arm(frontShoulder,-swing+drive,bend);
+  return {head:[dash?26:17,(dash?-63:-68)+bounce],neck,hip,
+    backShoulder,backElbow:backArm.elbow,backHand:backArm.hand,
+    frontShoulder,frontElbow:frontArm.elbow,frontHand:frontArm.hand,
+    backKnee:back.knee,backFoot:back.foot,frontKnee:front.knee,frontFoot:front.foot};
+}
+export const sprintPose=phase=>fastPose(phase,false);
+export const dashPose=phase=>fastPose(phase,true);
 const TRIP={head:[26,-57],neck:[17,-44],hip:[-5,-31],
   backShoulder:[15,-43],backElbow:[-1,-52],backHand:[-16,-55],
   frontShoulder:[15,-44],frontElbow:[29,-51],frontHand:[39,-61],
