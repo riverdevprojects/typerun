@@ -1,6 +1,6 @@
 export const STORY={title:'The Last Light',chapters:[
   {title:'The ash woods',kind:'forest',tag:'A blade. A promise.',text:'the forest had forgotten the sun. you dragged an old sword through the ash, following one small light between the trees.'},
-  {title:'The broken crossing',kind:'bridge',tag:'Trust the next word.',text:'the bridge was gone. only scattered stones remained. you took a breath, then leaped across the silence, one word at a time.'},
+  {title:'The broken crossing',kind:'bridge',tag:'A second tap. A second chance.',text:'the bridge was gone. only scattered stones remained. you took a breath, then jumped across the silence, one word at a time.'},
   {title:'The sleeping tower',kind:'tower',tag:'Three steps into the sky.',text:'above the clouds stood a broken tower. three steps hung in the air. 1 2 3 you climbed toward the last lantern.'},
   {title:'The keeper of night',kind:'approach',tag:'Something is waking.',text:'a dragon guarded the flame. its wings unfolded against the moon. you lifted the sword. the night lifted its claws.'},
   {title:'Steel and sparks',kind:'fight',tag:'Stand your ground. Write the fight.',text:'you braced. it struck. you blocked, turned, and slashed. sparks scattered. you ducked beneath its wing, stepped forward, and broke the chain around its heart.'},
@@ -20,11 +20,12 @@ export function createTrack(measure,gap=22){
         continue;
       }
       const number=/^[123]$/.test(word);
+      const superJump=scene.kind==='bridge'&&prev?.word==='jumped';
       const jump=scene.kind==='bridge'&&local>4||number;
       if(number)y-=82;
-      x+=(jump?(number?66:80):gap);
-      tokens.push({word,width,x,endX:x+width,y,chapter,local,kind:scene.kind,jump,number,
-        fromX:prev?.endX??x,fromY:prev?.y??y,arc:number?(word==='3'?96:80):76});
+      x+=(superJump?640:jump?(number?66:80):gap);
+      tokens.push({word,width,x,endX:x+width,y,chapter,local,kind:scene.kind,jump,number,superJump,
+        fromX:prev?.endX??x,fromY:prev?.y??y,arc:superJump?190:number?(word==='3'?96:80):76});
       x+=width;
     }
     chapters.push({...scene,start,end:tokens.length,anchor:tokens[start].x,y:tokens.at(-1).y});

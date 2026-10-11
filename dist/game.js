@@ -32,6 +32,13 @@ function launch(){
   leapOrigin=currentSample();entryPose=renderedPose;mode='leaping';timer=0;jumps++;
   progress=index;target=index;progressVelocity=0;typed='';input.value='';input.disabled=true;
   tone(track.tokens[index].number?440+Number(expected())*90:420,.09);stats();
+  if(track.tokens[index].superJump){burst(leapOrigin.x,leapOrigin.y-8,'',12);status('SUPER JUMP');feedback('Across the great divide!');tone(740,.2,.035);}
+}
+function boost(key){
+  if(paused||mode!=='gap'||jumpReady)return;
+  const result=checkJump(key,timer+Math.max(0,(performance.now()-lastTime)/1000));
+  if(result==='fall')fall('You missed the second jump. Back to this scene’s checkpoint.');
+  else if(result==='jump'){jumpReady=true;input.disabled=true;if(timer>=EDGE_TIME)launch();}
 }
 function status(text){if($('state-label').textContent.trim()===text)return;$('state-label').replaceChildren();const dot=document.createElement('span');dot.className='status-dot';$('state-label').append(dot,document.createTextNode(text));}
 function feedback(text,kind=''){$('feedback').textContent=text;$('feedback').className=kind;}
@@ -64,10 +71,7 @@ function onInput(){
   if(!available()){input.value=typed;return;}
   const value=input.value;
   if(mode==='gap'){
-    typed=value;
-    const result=checkJump(typed,timer+Math.max(0,(performance.now()-lastTime)/1000));
-    if(result==='fall')fall('You missed the crossing. Back to this scene’s checkpoint.');
-    else if(result==='jump'){jumpReady=true;input.disabled=true;if(timer>=EDGE_TIME)launch();}
+    boost(value===' '?'Space':'Letter');input.value='';
     return;
   }
   if(/\s/.test(value)){
@@ -80,7 +84,7 @@ function onInput(){
   else feedback(track.tokens[index].kind==='fight'?'Finish the word to finish the move.':'Keep going. Space finishes the word.');
 }
 function commit(){
-  if(mode==='gap'&&!paused){if(!jumpReady)fall('You missed the crossing. Back to this scene’s checkpoint.');return;}
+  if(mode==='gap')return;
   if(!available()||!typed)return;start();const word=expected(),result=classifyWord(typed,word);
   attempted+=Math.max(typed.length,word.length);for(let i=0;i<Math.min(typed.length,word.length);i++)if(typed[i].toLowerCase()===word[i].toLowerCase())correct++;
   if(result==='fall'){
@@ -91,7 +95,7 @@ function commit(){
   accepted++;index++;target=index;typed='';input.value='';
   if(index===track.total){mode='finishing';input.disabled=true;feedback('The last word. The first morning.');status('Let there be light');}
   else{
-    if(track.tokens[index].jump){edgeOrigin=origin;mode='gap';timer=0;jumpReady=false;feedback('');}
+    if(track.tokens[index].jump){edgeOrigin=origin;entryPose=renderedPose;mode='gap';timer=0;jumpReady=track.tokens[index].superJump;input.disabled=jumpReady;feedback('');}
     else if(result==='stumble'){entryPose=renderedPose;mode='stumble';timer=0;feedback('A familiar typo. A little stumble, then onward.','warn');tone(170,.12);}
     else if(mode!=='stumble'){feedback('Keep going. Space finishes the word.');}
   }
@@ -122,20 +126,10 @@ function resize(){
 function drawWords(sample){
   ctx.font=`${fontSize}px "Space Mono",Consolas,monospace`;ctx.textBaseline='alphabetic';
   for(const {index:i,token:t} of visibleWords(track,index)){
-    if(t.jump){
-      const previous=track.tokens[i-1];
-      const cueX=(previous.endX+t.x)/2-cameraX,cueY=(previous.y+t.y)/2-cameraY+floor+fontSize*.8;
-      ctx.save();ctx.font=`italic ${Math.round(fontSize*.85)}px "Space Mono",Consolas,monospace`;
-      const cueWidth=ctx.measureText('jump').width,left=cueX-cueWidth/2;
-      const active=i===index&&['gap','leaping'].includes(mode);
-      ctx.fillStyle=active?orange:i<index?'#b0bdaa':'#a28669';ctx.fillText('jump',left,cueY);
-      if(active&&mode==='gap'&&typed){ctx.fillStyle='#785e45';ctx.fillText('jump',left,cueY);ctx.fillStyle=orange;ctx.fillText('jump'.slice(0,matchingPrefix(typed,'jump')),left,cueY);}
-      ctx.restore();
-    }
     const x=t.x-cameraX,y=t.y-cameraY+floor;
     if(x+t.width<-100||x>width+80||y<-60||y>height+55)continue;
     const active=i===index&&index<track.total;
-    ctx.fillStyle=i<index?'#839c7f':active?'#34423b':'#aebcab';ctx.fillText(t.word,x,y+fontSize*.8);
+    ctx.fillStyle=t.word==='jumped'?orange:i<index?'#839c7f':active?'#34423b':'#aebcab';ctx.fillText(t.word,x,y+fontSize*.8);
     if(active){
       const prefix=['gap','leaping'].includes(mode)?0:matchingPrefix(typed,t.word);if(prefix){ctx.fillStyle=orange;ctx.fillText(t.word.slice(0,prefix),x,y+fontSize*.8);}
       stroke(ctx,[[x+prefix*charWidth,y+fontSize+7],[x+t.width,y+fontSize+7]],prefix<typed.length?'#c97655':orange,2);
@@ -147,7 +141,7 @@ function poseFor(sample){
   const idleTime=reduced?0:time;
   const travel=blendPose(walkPose(gait),runPose(gait,pace/150),gaitMix);
   let pose=dragPose(blendPose(idlePose(idleTime),travel,moveMix));
-  if(mode==='gap')pose=blendPose(pose,jumpPose(pose,.12),smooth(timer/.5)*.45);
+  if(mode==='gap'&&!reduced)pose=jumpPose(pose,Math.min(.5,sample.p));
   if(mode==='leaping'&&!reduced)pose=blendPose(jumpPose(entryPose,sample.p),dragPose(idlePose(idleTime)),smooth((sample.p-.75)/.25));
   if(sample.token.kind==='fight')pose=blendPose(pose,combatPose(sample.p,sample.token.action),smooth(sample.token.local===0?sample.p*4:1));
   if(sample.token.kind==='dawn')pose={...pose,frontElbow:[10,-51],frontHand:[19,-63]};
@@ -161,6 +155,11 @@ function drawCharacter(sample){
   const x=sample.x-cameraX,y=sample.y-cameraY+floor;
   let pose=poseFor(sample);if(!paused)renderedPose=pose;else pose=renderedPose;
   ctx.save();ctx.translate(x,y);const scale=width<550?.92:1.1;ctx.scale(scale,scale);
+  if(mode==='leaping'&&sample.token.superJump&&!reduced){
+    ctx.globalAlpha=Math.sin(sample.p*Math.PI)*.55;
+    for(let i=0;i<3;i++)stroke(ctx,[[-40-i*7,-58+i*17],[-80-i*13,-58+i*17]],orange,1.7);
+    ctx.globalAlpha=1;
+  }
   if(mode==='ending'||mode==='complete'){
     drawSword(ctx,[35,-54],Math.PI/2,51);drawLantern(ctx,pose.frontHand[0]+3,pose.frontHand[1]+28,time,true);
   }else if(sample.token.kind==='fight'){
@@ -187,7 +186,7 @@ function frame(now){
       const after=currentSample();
       if(!reduced)gait+=Math.abs(after.x-before.x)/strideLength(gaitMix)*Math.PI*2;
       if(jumpReady&&timer>=EDGE_TIME)launch();
-      else if(checkJump(typed,timer)==='fall')fall('Too late. Back to this scene’s checkpoint.');
+      else if(checkJump(null,timer)==='fall')fall('Too late for the second jump. Back to this scene’s checkpoint.');
     }else if(mode==='leaping'){
       timer+=realDt;
       if(timer>=leapDuration(track.tokens[index])){
@@ -219,7 +218,7 @@ function frame(now){
     const anchor=sample.token.kind==='fight'?width*.35:width*.3;
     cameraX=lerp(cameraX,Math.max(0,sample.x-anchor),ease(7,dt));
     const next=track.tokens[Math.min(index,track.total-1)];
-    cameraX=clamp(cameraX,Math.max(0,next.x+next.width-width+28),Math.max(0,next.x-28));
+    if(!next.superJump||!['gap','leaping'].includes(mode))cameraX=clamp(cameraX,Math.max(0,next.x+next.width-width+28),Math.max(0,next.x-28));
     cameraY=lerp(cameraY,sample.y,ease(reduced?25:3.6,dt));
     if(sceneKind!==sample.token.kind){previousKind=sceneKind;sceneKind=sample.token.kind;sceneFade=0;}
     sceneFade=Math.min(1,sceneFade+dt*2.8);
@@ -243,7 +242,12 @@ function frame(now){
   if(now-lastStats>500){if(mode!=='complete')stats();lastStats=now;}
   requestAnimationFrame(frame);
 }
-input.addEventListener('input',onInput);input.addEventListener('keydown',e=>{if((e.key===' '||e.key==='Enter')&&!e.isComposing){e.preventDefault();commit();}});
+input.addEventListener('input',onInput);input.addEventListener('keydown',e=>{
+  if((e.key===' '||e.key==='Enter')&&!e.isComposing){
+    e.preventDefault();if(e.repeat)return;
+    if(mode==='gap'){boost(e.key===' '?'Space':'Enter');return;}commit();
+  }
+});
 input.addEventListener('paste',e=>{e.preventDefault();feedback('One keystroke at a time. This adventure is yours.','warn');});
 $('canvas-wrap').addEventListener('click',()=>{if(available())input.focus({preventScroll:true});});
 $('restart').addEventListener('click',reset);$('replay').addEventListener('click',reset);$('pause').addEventListener('click',()=>pause(!paused));$('resume').addEventListener('click',()=>pause(false));

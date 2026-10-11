@@ -27,22 +27,31 @@ test('solid ground joins continuously; gap words start on their landing platform
 test('leaps finish on a clock without another keystroke, including numbered ascents',()=>{
   for(const [i,t] of track.tokens.entries())if(t.jump){
     const prev=track.tokens[i-1],origin={x:prev.endX,y:prev.y},duration=leapDuration(t);
-    const edge=sampleEdge(track,i,origin,EDGE_TIME);near(edge.x,prev.endX);near(edge.y,prev.y);
+    const edge=sampleEdge(track,i,origin,EDGE_TIME);near(edge.x,prev.endX);assert.ok(edge.y<prev.y,'the first Space has already lifted the runner');
     const start=sampleLeap(track,i,edge,0),mid=sampleLeap(track,i,edge,duration/2),end=sampleLeap(track,i,edge,duration);
-    near(start.x,prev.endX);near(start.y,prev.y);near(end.x,t.x);near(end.y,t.y);
+    near(start.x,prev.endX);near(start.y,edge.y);near(end.x,t.x);near(end.y,t.y);
     near(end.x,sampleTrack(track,i).x);near(end.y,sampleTrack(track,i).y);
     assert.ok(mid.y<Math.min(start.y,end.y)-30);assert.ok(t.x-prev.endX>=60);
     const quiet=sampleLeap(track,i,edge,duration/2,true);near(quiet.y,(start.y+end.y)/2);
     assert.deepEqual(sampleLeap(track,i,edge,duration+5),end);
   }
 });
-test('jump requires the exact lowercase command before the deadline',()=>{
-  for(const value of ['','j','ju','jum'])assert.equal(checkJump(value,.5),'waiting');
-  assert.equal(checkJump('jump',JUMP_WINDOW-.001),'jump');
-  for(const value of ['JUMP','Jump','jmp','jup','jump ','jumx'])assert.equal(checkJump(value,.2),'fall');
-  for(const value of ['','j','jum','jump'])assert.equal(checkJump(value,JUMP_WINDOW),'fall');
+test('a second Space boosts the first hop; missed or wrong inputs fail',()=>{
+  assert.equal(checkJump(null,.5),'waiting');
+  assert.equal(checkJump('Space',JUMP_WINDOW-.001),'jump');
+  for(const key of ['Enter','jump','Letter'])assert.equal(checkJump(key,.2),'fall');
+  for(const key of [null,'Space'])assert.equal(checkJump(key,JUMP_WINDOW),'fall');
   const edge=sampleEdge(track,26,{x:track.tokens[25].endX,y:0},JUMP_WINDOW-.001);
   assert.ok(edge.x>track.tokens[25].endX&&edge.y>35,'a slow entry keeps moving down between the words');
+});
+test('jumped launches a super jump over a gap eight times wider than the regular crossing',()=>{
+  const i=track.tokens.findIndex(t=>t.superJump),t=track.tokens[i],previous=track.tokens[i-1];
+  assert.equal(previous.word,'jumped');assert.equal(t.word,'across');
+  assert.equal(t.x-previous.endX,640);assert.ok(t.arc>150);assert.ok(leapDuration(t)>1);
+  assert.equal(track.tokens.filter(t=>t.superJump).length,1);
+  const origin={x:previous.endX,y:previous.y},mid=sampleLeap(track,i,origin,leapDuration(t)/2);
+  assert.ok(mid.x>origin.x+300&&mid.y<origin.y-150);
+  const end=sampleLeap(track,i,origin,leapDuration(t));near(end.x,t.x);near(end.y,t.y);
 });
 test('finishing a word without submitting it cannot cross a gap or suspend the runner',()=>{
   for(const [i,t] of track.tokens.entries())if(t.jump){
