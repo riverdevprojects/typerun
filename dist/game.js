@@ -1,8 +1,8 @@
 import {idlePose,walkPose,runPose,runningBlend,strideLength,blendPose,tripPose,fallPose,landPose,risePose,drawFigure,advanceTravel,smooth} from './motion.js';
 import {STORY,createTrack,sampleTrack,checkpoint,clamp,lerp,punctuationJump} from './story.js';
-import {carryPose,jumpPose,doubleJumpPose,jumpLandingPose} from './story-motion.js';
-import {paintScene,stroke,drawDragon,drawBreath,drawLantern,drawSignpost} from './scenery.js';
-import {fightPhase,battlePose,battleRotation,fireStrength} from './choreography.js';
+import {carryPose,jumpPose,jumpLandingPose} from './story-motion.js';
+import {paintScene,stroke,drawLantern,drawCampfire} from './scenery.js';
+import {hearthState,hearthPose} from './journey.js';
 import {letterFeedback,insertedKeys,accuracy,belowMinimum,completedPunctuation,updateExtraLayout,ERROR_COLOR,EXTRA_COLOR} from './typing-feedback.js';
 import {sampleLeap,leapDuration,typingFlightRate,visibleWords} from './leap.js';
 const $=id=>document.getElementById(id),canvas=$('stage'),ctx=canvas.getContext('2d'),input=$('typing');
@@ -14,10 +14,10 @@ let cameraX=0,cameraY=0,lastTime=0,time=0,elapsed=0,started=false;
 let gait=0,pace=0,gaitMix=0,moveMix=0,renderedPose=idlePose(),entryPose=renderedPose;
 let timer=0,fallOrigin=null,checkpointIndex=0,accepted=0,correct=0,attempted=0,falls=0,jumps=0;
 let sound=false,audio=null,best=0,particles=[],lastStats=0,sceneKind='forest',previousKind='forest',sceneFade=1;
-let leapOrigin=null,flightToken=null,lightCaught=false;
+let leapOrigin=null,flightToken=null;
 let flightRate=1,landingFraction=0,deferredWord=null,deferredKeys=[],resumeBlend=1,resumePose=renderedPose;
 let landingAge=1;
-let spinAge=-1;
+let ignitionAge=-1;
 let chapterCorrect=0,chapterInputs=0,wordHistory=new Map();
 function expandWord(i,value){ctx.font=`${fontSize}px "Space Mono",Consolas,monospace`;updateExtraLayout(track,i,value,text=>ctx.measureText(text).width);}
 function recordKeys(keys){
@@ -42,25 +42,13 @@ function interruptRecovery(){
 function currentSample(){
   if(mode==='leaping')return sampleLeap(track,Math.min(index,track.total-1),leapOrigin,timer,reduced,landingFraction,flightToken);
   if(mode==='falling')return {...fallOrigin,y:fallOrigin.y+(reduced?150:340)*(timer/.8)**2};
-  const sample=sampleTrack(track,progress,reduced,index),battle=battleState(sample);
-  if(battle.action==='spin'&&!reduced)sample.y-=Math.sin(clamp((battle.p-.2)/.4)*Math.PI)*38;
-  return sample;
-}
-function battleState(sample){
-  if(spinAge>=0&&spinAge<1.25&&['fight','cave'].includes(sample.token.kind))return {action:'spin',p:clamp(spinAge/1.2)};
-  if(sample.token.kind!=='fight')return {action:'idle',p:0};
-  const p=fightPhase(sample.token,progress),action=sample.token.action;
-  return {action,p:action==='spin'?spinAge<0?Math.min(.19,p):1:p};
-}
-function lanternState(sample){
-  const dawn=track.chapters.find(c=>c.kind==='dawn');
-  return {carried:progress<dawn.hook,hung:progress>=dawn.hook,lit:lightCaught};
+  return sampleTrack(track,progress,reduced,index);
 }
 function fall(message){
   fallOrigin=currentSample();falls++;checkpointIndex=checkpoint(track,index);entryPose=renderedPose;
   mode='falling';timer=0;input.disabled=true;typed='';input.value='';
   deferredWord=null;deferredKeys=[];resumeBlend=1;
-  spinAge=-1;
+  ignitionAge=-1;
   burst(fallOrigin.x,fallOrigin.y+12,'',9);feedback(message,'error');status('A slip into the margins');tone(100,.3,.045);stats();
 }
 function launch(origin,type){
@@ -71,7 +59,7 @@ function launch(origin,type){
   flightRate=1;landingFraction=index===track.total?1:0;
   progress=index;progressVelocity=0;input.disabled=false;
   canvas.dataset.jumpKind=type;
-  tone(type==='double'?540:420,.09);status(type==='double'?'A full stop. A double jump.':'A little punctuation. A little leap.');stats();
+  tone(420,.09);status('A little punctuation. A little leap.');stats();
 }
 function pressSpace(key){
   if(!available())return;
@@ -147,19 +135,15 @@ function commit(spaceScored=false){
     return;
   }
   interruptRecovery();
-  if(track.tokens[index].kind==='fight'){
-    const t=track.tokens[index];
-    if(t.word==='breath.'){lightCaught=true;burst(t.endX+34,t.y-54,'',15);tone(820,.2,.035);}
-    if(t.action==='spin'&&t.word==='spun'){spinAge=0;burst(t.endX+95,t.y-63,'',18);tone(150,.25,.05);}
-    else if(['lunge','wing'].includes(t.action)){burst(t.endX+55,t.y-52,'',4);tone(420,.06,.025);}
-  }
+  const hearth=track.chapters.at(-1);
+  if(index+1===hearth.ignite){ignitionAge=0;burst(hearth.fireX-12,hearth.y-10,'',10);tone(740,.25,.035);}
   const origin=currentSample(),jumpType=punctuationJump(typed);
   wordHistory.set(index,typed);const oldChapter=track.tokens[index].chapter;
   accepted++;index++;target=index;typed='';input.value='';
   if(index<track.total)track.tokens[index].skipJump=!jumpType;
   if(index<track.total&&track.tokens[index].chapter!==oldChapter){chapterCorrect=0;chapterInputs=0;}
   if(jumpType)launch(origin,jumpType);
-  else if(index===track.total){mode='finishing';input.disabled=true;feedback('The last word. The first morning.');status('Let there be light');}
+  else if(index===track.total){mode='finishing';input.disabled=true;feedback('The last word. A little warmth.');status('A little light to keep');}
   else{
     if(mode!=='stumble'){feedback('');}
   }
@@ -172,10 +156,10 @@ function reset(){
   index=0;typed='';progress=0;progressVelocity=0;target=0;mode='ready';paused=false;cameraX=0;cameraY=0;
   time=0;elapsed=0;started=false;gait=0;pace=0;gaitMix=0;moveMix=0;timer=0;accepted=0;correct=0;attempted=0;falls=0;jumps=0;particles=[];
   renderedPose=idlePose();entryPose=renderedPose;sceneKind='forest';previousKind='forest';sceneFade=1;
-  leapOrigin=null;flightToken=null;lightCaught=false;canvas.dataset.jumpKind='';
+  leapOrigin=null;flightToken=null;canvas.dataset.jumpKind='';
   flightRate=1;landingFraction=0;deferredWord=null;deferredKeys=[];resumeBlend=1;
   landingAge=1;
-  spinAge=-1;
+  ignitionAge=-1;
   chapterCorrect=0;chapterInputs=0;wordHistory.clear();
   input.value='';input.disabled=false;$('start-hint').hidden=false;$('pause-overlay').hidden=true;$('ending-overlay').hidden=true;
   $('pause').innerHTML='<kbd>esc</kbd> pause';metadata();stats();status('A story waiting to wake');feedback('Start with “the”. Space finishes each word.');input.focus({preventScroll:true});
@@ -215,42 +199,24 @@ function poseFor(sample){
   const idleTime=reduced?0:time;
   const travel=blendPose(walkPose(gait),runPose(gait,pace/150),gaitMix);
   let pose=carryPose(blendPose(idlePose(idleTime),travel,moveMix));
+  const hearth=track.chapters.at(-1);
+  if(sample.token.kind==='hearth')pose=hearthPose(pose,hearth,progress,idleTime,ignitionAge);
   if(mode==='leaping'&&!reduced){
-    pose=flightToken.jumpType==='double'&&sample.p>=.32?doubleJumpPose(jumpPose(entryPose,.45),(sample.p-.32)/.68,carryPose(idlePose(idleTime))):jumpPose(entryPose,flightToken.jumpType==='double'?sample.p/.32*.45:sample.p);
+    const rest=sample.token.kind==='hearth'?hearthPose(carryPose(idlePose(idleTime)),hearth,progress,idleTime,ignitionAge):carryPose(idlePose(idleTime)),base=blendPose(entryPose,rest,smooth(sample.p));
+    pose=jumpLandingPose(jumpPose(base,sample.p),smooth((sample.p-.8)/.2));
   }
   if(mode==='playing'&&landingAge<.18&&!reduced)pose=jumpLandingPose(pose,1-smooth(landingAge/.18));
-  const battle=battleState(sample);
-  if(sample.token.kind==='fight'&&mode!=='leaping'||battle.action==='spin')pose=blendPose(pose,battlePose(battle.action,battle.p,idleTime),smooth(sample.token.local===0?sample.p*4:1));
-  if(lanternState(sample).carried&&sample.token.kind!=='fight'&&battle.action!=='spin')pose=carryPose(pose);
-  if(sample.token.stationary){
-    const dawn=track.chapters[sample.token.chapter],hang=smooth((progress-dawn.hang)/Math.max(1,dawn.hook-dawn.hang));
-    pose=blendPose(pose,{...carryPose(idlePose(idleTime)),frontElbow:[12,-61],frontHand:[22,-77]},hang*(1-smooth(progress-dawn.hook)));
-  }
   if(mode==='stumble')pose=tripPose(entryPose,pose,timer/.82);
   if(mode==='falling')pose=fallPose(entryPose,timer/.8,reduced);
   if(mode==='recover')pose=timer<.35?landPose(entryPose,timer/.35):risePose((timer-.35)/.72,idleTime);
-  if(mode==='ending'||mode==='complete')pose=blendPose(pose,idlePose(idleTime),smooth(timer/1.2));
+  if(mode==='ending'||mode==='complete')pose=blendPose(pose,carryPose(idlePose(idleTime)),smooth(timer/1.2));
   if(resumeBlend<1)pose=blendPose(resumePose,pose,smooth(resumeBlend));
   return pose;
 }
 function drawCharacter(sample){
   const x=sample.x-cameraX,y=sample.y-cameraY+floor;
   let pose=poseFor(sample);if(!paused)renderedPose=pose;else pose=renderedPose;
-  if(mode==='leaping'&&flightToken.jumpType==='double'&&!reduced&&sample.p>=.32&&sample.p<.65){
-    // A broken pressure ring stays where the second jump kicked off, rather than following the feet.
-    const p=(sample.p-.32)/.33,r=12+32*smooth(p),bx=sample.x-cameraX,by=leapOrigin.y-cameraY+floor-flightToken.arc*.45-5;
-    ctx.save();ctx.globalAlpha=smooth(p/.15)*(1-p)*.8;
-    ctx.strokeStyle=orange;ctx.lineWidth=1.8;
-    for(const a of [.15,Math.PI+.15]){ctx.beginPath();ctx.ellipse(bx,by,r,r*.32,-.22,a,a+2.35);ctx.stroke();}
-    for(let i=0;i<3;i++){
-      const a=.7+i*.8,dx=Math.cos(a),dy=Math.sin(a);
-      stroke(ctx,[[bx+dx*(r+4),by+dy*(r*.35+4)],[bx+dx*(r+12),by+dy*(r*.35+12)]],orange,1.6);
-    }
-    ctx.restore();
-  }
   ctx.save();ctx.translate(x,y);const scale=width<550?.92:1.1;ctx.scale(scale,scale);
-  const battle=battleState(sample),rotation=reduced?0:battleRotation(battle.action,battle.p);
-  if(rotation){ctx.translate(0,-35);ctx.rotate(rotation);ctx.translate(0,35);}
   if(mode==='leaping'&&!reduced&&sample.p<.7){
     const strength=Math.sin(Math.PI*clamp(sample.p/.7));
     ctx.globalAlpha=strength*.5;ctx.strokeStyle=orange;ctx.lineWidth=1.6;ctx.lineCap='round';
@@ -258,25 +224,16 @@ function drawCharacter(sample){
     ctx.globalAlpha=strength*.25;ctx.beginPath();ctx.moveTo(-51,-18);ctx.quadraticCurveTo(-47,-49,-27,-59);ctx.stroke();
     ctx.globalAlpha=1;
   }
-  if(sample.token.kind==='fight'||battle.action==='spin'){
-    if(!reduced&&battle.action==='spin'&&battle.p>.2&&battle.p<.85){
-      const alpha=Math.sin(clamp((battle.p-.2)/.65)*Math.PI);
-      ctx.globalAlpha=alpha*.2;ctx.strokeStyle='#ec9345';ctx.lineWidth=15;
-      ctx.beginPath();ctx.arc(3,-38,114,-2.3,.75);ctx.stroke();
-      ctx.globalAlpha=alpha*.8;ctx.strokeStyle='#e3974d';ctx.lineWidth=2;ctx.stroke();
-      ctx.globalAlpha=alpha*.5;ctx.lineWidth=1;ctx.beginPath();ctx.arc(3,-38,125,-2.15,.5);ctx.stroke();ctx.globalAlpha=1;
-    }
-  }
-  const lantern=lanternState(sample),transfer=battle.action==='spin'?smooth((battle.p-.8)/.2):1;
-  const hand=[lerp(pose.backHand[0],pose.frontHand[0],transfer),lerp(pose.backHand[1],pose.frontHand[1],transfer)];
-  if(lantern.carried)drawLantern(ctx,hand[0]+3,hand[1]+44,reduced?0:time,lantern.lit);
-  drawFigure(ctx,pose,orange);ctx.restore();
+  const hearth=track.chapters.at(-1),lit=hearthState(hearth,progress,ignitionAge).lit;
+  const swing=reduced?0:Math.sin(gait)*.09*moveMix+Math.sin(time*1.5)*.025;
+  drawLantern(ctx,pose.frontHand[0]+1,pose.frontHand[1],reduced?0:time,lit,swing);
+  drawFigure(ctx,pose,orange,{weight:4.1,headWeight:4,headRadius:10.5});ctx.restore();
 }
 function frame(now){
   const realDt=Math.max(0,(now-(lastTime||now))/1000),dt=Math.min(realDt,.035);lastTime=now;
   if(!paused){
     time+=dt;landingAge+=dt;
-    if(spinAge>=0){const before=spinAge;spinAge+=dt;if(before<.84&&spinAge>=.84){const fight=track.chapters.find(c=>c.kind==='fight');burst(track.tokens[fight.start].endX+165,fight.y-70,'',24);tone(110,.3,.06);}}
+    if(ignitionAge>=0)ignitionAge+=dt;
     resumeBlend=Math.min(1,resumeBlend+dt/.14);if(started&&['playing','stumble','leaping'].includes(mode))elapsed+=realDt;
     if(mode==='leaping'){
       timer+=realDt*flightRate;
@@ -284,7 +241,7 @@ function frame(now){
       if(timer>=leapDuration(flightToken))land();
     }else if(mode==='falling'){
       timer+=dt;
-      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);clearChapter();index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;flightToken=null;canvas.dataset.jumpKind='';lightCaught=index>=track.chapters.find(c=>c.kind==='fight').end;metadata();stats();input.disabled=false;feedback('');input.focus({preventScroll:true});}
+      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);clearChapter();index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;flightToken=null;canvas.dataset.jumpKind='';ignitionAge=-1;metadata();stats();input.disabled=false;feedback('');input.focus({preventScroll:true});}
     }else if(mode==='recover'){
       timer+=dt;if(timer>=1.1){mode='playing';moveMix=0;pace=0;gaitMix=0;input.disabled=false;feedback('Back at the checkpoint. The light is still waiting.');input.focus({preventScroll:true});}
     }else if(mode==='ending'){
@@ -304,7 +261,7 @@ function frame(now){
   }
   const sample=currentSample();canvas.dataset.motion=paused?'paused':mode;
   if(!paused){
-    const anchor=sample.token.kind==='fight'?width*(width<550?.22:.35):width*.3;
+    const anchor=width*.3;
     cameraX=lerp(cameraX,Math.max(0,sample.x-anchor),ease(7,dt));
     const next=track.tokens[Math.min(index,track.total-1)];
     cameraX=clamp(cameraX,Math.max(0,next.x+next.width-width+28),Math.max(0,next.x-28));
@@ -312,41 +269,22 @@ function frame(now){
     if(sceneKind!==sample.token.kind){previousKind=sceneKind;sceneKind=sample.token.kind;sceneFade=0;}
     sceneFade=Math.min(1,sceneFade+dt*2.8);
   }
-  const dawn=track.chapters.find(c=>c.kind==='dawn'),sunrise=smooth((progress-dawn.hook)/Math.max(1,track.total-dawn.hook));
-  const sceneArgs={width,height,cameraX,cameraY,floor,time:reduced?0:time,reduced,sunrise};
+  const hearth=track.chapters.at(-1),lit=hearthState(hearth,progress,ignitionAge).lit;
+  const sceneArgs={width,height,cameraX,cameraY,floor,time:reduced?0:time,reduced,lit,towerX:track.chapters.find(c=>c.kind==='tower').anchor,fireX:hearth.fireX,fireY:hearth.y+24};
   ctx.clearRect(0,0,width,height);paintScene(ctx,previousKind,sceneArgs);ctx.save();ctx.globalAlpha=smooth(sceneFade);paintScene(ctx,sceneKind,sceneArgs);ctx.restore();
-  if(['approach','fight','cave'].includes(sample.token.kind)){
-    const fight=track.chapters.find(c=>c.kind==='fight'),anchor=track.tokens[fight.start].endX;
-    const scale=width<550?.56:1.03,battle=battleState(sample),player=anchor-cameraX;
-    const x=Math.min(player+Math.min(180,width*.34),width-225*scale-12),y=fight.y-cameraY+floor;
-    const approach=track.chapters.find(c=>c.kind==='approach');
-    const resolve=sample.token.kind==='cave'?1:spinAge>=0?smooth((spinAge-.84)/.4):0;
-    drawDragon(ctx,x,y,{time:reduced?0:time,p:battle.p,action:battle.action,resolve,reduced,scale,reveal:clamp((progress-approach.start)/(approach.end-approach.start)*2)});
-    if(battle.action==='fire'){
-      const s=width<550?.92:1.1,pose=poseFor(sample);
-      drawBreath(ctx,[x-102*scale,y-123*scale],[sample.x-cameraX+(pose.frontHand[0]+3)*s,sample.y-cameraY+floor+(pose.frontHand[1]+23)*s],{time:reduced?0:time,strength:fireStrength(battle.p),reduced});
+  if(['cave','hearth'].includes(sample.token.kind)){
+    const x=hearth.fireX-cameraX,y=hearth.y-cameraY+floor;
+    if(sample.token.kind==='hearth'){
+      ctx.fillStyle='#d2d5c6';ctx.beginPath();ctx.moveTo(x-190,y+34);ctx.lineTo(x+160,y+34);ctx.lineTo(x+210,height);ctx.lineTo(x-230,height);ctx.closePath();ctx.fill();
+      stroke(ctx,[[x-190,y+34],[x+160,y+34]],'#a8b3a0',1.2);
     }
-    if(sample.token.kind==='fight'){
-      ctx.font='9px "DM Sans",sans-serif';ctx.fillStyle='#758970';ctx.fillText('THE MOUNTAIN KEEPER',x-60,y-215*scale);
-      const hp=clamp((progress-fight.start)/(fight.end-fight.start));
-      stroke(ctx,[[x-60,y-204*scale],[x+65,y-204*scale]],'#d5decf',2);stroke(ctx,[[x-60,y-204*scale],[x-60+125*(1-hp),y-204*scale]],'#809375',2);
-    }
+    drawCampfire(ctx,x,y+24,reduced?0:time,reduced);
   }
-  if(sample.token.kind==='dawn'){
-    const x=track.tokens.at(-1).endX-cameraX,y=dawn.y-cameraY+floor;
-    const ledge=[[x-88,y+37],[x+91,y+37],[x+167,y+92],[x+229,height+22],[x-267,height+22],[x-154,y+90]];
-    ctx.beginPath();ledge.forEach(([px,py],i)=>i?ctx.lineTo(px,py):ctx.moveTo(px,py));ctx.closePath();ctx.fillStyle='#d3dec2';ctx.fill();
-    stroke(ctx,ledge.slice(0,4),'#afc29d',1.4);
-    stroke(ctx,[[x-46,y+41],[x-21,y+68],[x-38,y+88],[x-30,height]],'#bccbad',1);
-    stroke(ctx,[[x+69,y+40],[x+50,y+73],[x+86,y+101]],'#bccbad',1);
-    stroke(ctx,[[x-75,y+36],[x-77,y+29],[x-71,y+34]],'#a1b88d',.8);
-    drawSignpost(ctx,x+40,y,reduced?0:time,lanternState(sample).hung);
-  }
+  canvas.dataset.lanternLit=String(lit>.95);
   drawWords(sample);drawCharacter(sample);
   for(const p of particles){ctx.globalAlpha=1-p.age/.75;ctx.fillStyle='#dca56c';if(p.letter){ctx.font='17px "Space Mono",monospace';ctx.fillText(p.letter,p.x-cameraX,p.y-cameraY+floor);}else stroke(ctx,[[p.x-cameraX,p.y-cameraY+floor],[p.x-cameraX-p.vx*.04,p.y-cameraY+floor-p.vy*.04]],'#dda569',1.5);}ctx.globalAlpha=1;
   if(!paused&&mode==='playing'){
-    const action=battleState(sample).action;
-    status(sample.token.kind==='fight'?({guard:'Stand your ground',lunge:'Claws against the lantern',wing:'Beneath the wings',fire:'Catch the keeper’s breath',spin:'Turn the light into a wave',bow:'The keeper bows'})[action]:sample.token.kind==='cave'?'The flame leads the way':sample.token.kind==='dawn'?'The final ridge':'Up the mountain');
+    status(sample.token.kind==='hearth'?(lit>.95?'A little light to keep':'Warmth in the stone'):sample.token.kind==='cave'?'Into the quiet':sample.token.kind==='tower'?'Past the old watchtower':'Up the mountain');
   }
   if(now-lastStats>500){if(mode!=='complete')stats();lastStats=now;}
   requestAnimationFrame(frame);

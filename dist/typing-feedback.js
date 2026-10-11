@@ -16,7 +16,7 @@ export function completedPunctuation(previous,next,expected){
 }
 // Extra letters expand the word and the following terrain, as they expand Monkeytype's text layout.
 export function updateExtraLayout(track,index,typed,measure){
-  const token=track.tokens[index];if(!token||token.kind==='fight'||token.stationary)return;
+  const token=track.tokens[index];if(!token||token.stationary)return;
   const width=measure(typed.slice(token.word.length)),delta=width-(token.extraWidth||0);
   if(!delta)return;token.extraWidth=width;token.endX+=delta;
   for(let i=index+1;i<track.total;i++){
@@ -24,6 +24,6 @@ export function updateExtraLayout(track,index,typed,measure){
   }
   for(const chapter of track.chapters){
     chapter.anchor=track.tokens[chapter.start].x;
-    if(chapter.pickup)chapter.pickupX=track.tokens[chapter.pickup-1].endX;
+    if(chapter.stop!==null)chapter.fireX=track.tokens[chapter.stop].endX+62;
   }
 }

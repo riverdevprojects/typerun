@@ -1,64 +1,37 @@
 export const STORY={title:'The Last Light',chapters:[
-  {title:'The ash foothills',kind:'forest',climb:50,tag:'An empty lantern. A mountain waiting.',text:'the mountain had forgotten the sun. you carried an empty lantern through the ash woods, following a narrow trail higher between the trees.'},
-  {title:'The broken crossing',kind:'bridge',climb:25,tag:'A pause in the sentence. A leap in the trail.',text:'the bridge was gone. only scattered stones remained. you took a breath, then jumped across the ravine, climbing higher one word at a time.'},
-  {title:'The mountain steps',kind:'tower',climb:55,tag:'Above the clouds. Toward the summit.',text:'above the clouds stood a ruined watchtower. three steps hung along the mountainside. 1 2 3 you climbed into the thin, silent air.'},
-  {title:'The keeper of the cave',kind:'approach',climb:60,tag:'The last gate to morning.',text:'near the summit, a dragon guarded a dark cave. its great wings unfolded against the moon. you lifted the lantern. the keeper lowered its horns.'},
-  {title:'Steel and fire',kind:'fight',tag:'Hold the fire. Turn the tide.',beats:[
-    {action:'guard',text:'you planted your feet and raised the lantern.'},
-    {action:'lunge',text:'the dragon lunged. you turned its claws aside.'},
-    {action:'wing',text:'its wing swept low. you ducked beneath the storm.'},
-    {action:'fire',text:'it breathed fire. you raised the lantern and captured its breath.'},
-    {action:'spin',text:'the flame awoke. you spun and unleashed a sweeping wave of light.'},
-    {action:'bow',text:'the light shattered its armor. the dragon bowed and opened the way.'}
-  ]},
-  {title:'The sheltered cave',kind:'cave',tag:'The keeper’s fire. Your little light.',text:'inside the cave, the captured flame danced behind the glass. you carried the glowing lantern past the ancient stones. its light showed the path back to the summit.'},
-  {title:'The first morning',kind:'dawn',climb:75,stationaryAfter:'hung',tag:'Carry the light a little higher.',text:'you climbed the final ridge. at the highest point stood a weathered signpost. you hung the lantern on its hook, and the sun rose over the mountain.'}
+  {title:'The ash foothills',label:'Foothills',kind:'forest',climb:50,tag:'An empty lantern. A mountain waiting.',text:'the mountain had forgotten the sun. you carried an empty lantern through the ash woods, following a narrow trail higher between the trees.'},
+  {title:'The broken crossing',label:'Crossing',kind:'bridge',climb:25,tag:'A pause in the sentence. A leap in the trail.',text:'the bridge was gone. only scattered stones remained. you took a breath, then jumped across the ravine, climbing higher one word at a time.'},
+  {title:'The old watchtower',label:'Watchtower',kind:'tower',climb:100,tag:'Past the old walls. Into the mountain.',text:'above the clouds stood a ruined watchtower. you followed the worn stone path around its walls, toward a hollow in the mountain.'},
+  {title:'The sheltered cave',label:'Cave',kind:'cave',climb:20,tag:'The wind falls quiet.',text:'you stepped into the cave, carrying your empty lantern. the wind faded behind you. deep in the stone, a small fire flickered.'},
+  {title:'A little fire',label:'Firelight',kind:'hearth',stationaryAfter:'beside',tag:'A little warmth. A little light.',text:'you knelt beside the fire. you lowered the lantern and touched its wick to an ember. a warm flame bloomed behind the glass. you lifted the light, and the darkness became a place to rest.'}
 ]};
-for(const chapter of STORY.chapters)if(chapter.beats)chapter.text=chapter.beats.map(b=>b.text).join(' ');
 export const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
 export const lerp=(a,b,t)=>a+(b-a)*t;
-export function punctuationJump(word){const mark=word.at(-1);return mark==='.'?'double':/[,!?;:]/.test(mark||'')?'single':null;}
+export function punctuationJump(word){return /[.,!?;:]/.test(word.at(-1)||'')?'single':null;}
 export function createTrack(measure,gap=22){
   const tokens=[],chapters=[];let x=140,y=0;
   for(const [chapter,scene] of STORY.chapters.entries()){
-    const start=tokens.length,words=scene.text.split(' ');let fightX=0;
-    const beats=[];let beatOffset=start;
-    for(const beat of scene.beats||[]){const end=beatOffset+beat.text.split(' ').length;beats.push({...beat,start:beatOffset,end});beatOffset=end;}
-    const stop=scene.stationaryAfter?words.indexOf(scene.stationaryAfter):-1;
+    const start=tokens.length,words=scene.text.split(' '),stop=scene.stationaryAfter?words.indexOf(scene.stationaryAfter):-1;let stageX=0;
     for(const [local,word] of words.entries()){
-      const width=measure(word),prev=tokens.at(-1);
-      if(scene.kind==='fight'){
-        if(local===0){fightX=x+90;x=fightX;}
-        const beat=beats.find(b=>tokens.length<b.end);
-        tokens.push({word,width,x:fightX-width/2,endX:fightX,y,chapter,local,kind:scene.kind,jump:!!punctuationJump(prev?.word||''),jumpType:punctuationJump(prev?.word||''),arc:prev?.word.endsWith('.')?84:50,action:beat.action,beatStart:beat.start,beatEnd:beat.end});
-        continue;
-      }
+      const width=measure(word),prev=tokens.at(-1),jumpType=punctuationJump(prev?.word||''),jump=!!jumpType;
       if(stop>=0&&local>=stop){
-        if(local===stop){fightX=x+35;x=fightX;}
-        tokens.push({word,width,x:fightX-width/2,endX:fightX,y,chapter,local,kind:scene.kind,jump:!!punctuationJump(prev?.word||''),jumpType:punctuationJump(prev?.word||''),arc:prev?.word.endsWith('.')?84:50,stationary:true});continue;
+        if(local===stop){stageX=x+35;x=stageX;}
+        tokens.push({word,width,x:stageX-width/2,endX:stageX,y,chapter,local,kind:scene.kind,jump,jumpType,arc:50,stationary:true});continue;
       }
-      const number=/^[123]$/.test(word);
-      y-=(scene.climb||0)/(stop>=0?stop:words.length);
-      const jumpType=punctuationJump(prev?.word||''),jump=!!jumpType;
-      if(number)y-=82;
-      x+=jump?(jumpType==='double'?48:75):gap;
-      tokens.push({word,width,x,endX:x+width,y,chapter,local,kind:scene.kind,jump,jumpType,number,
-        fromX:prev?.endX??x,fromY:prev?.y??y,arc:jumpType==='double'?110:65});
-      x+=width;
+      y-=(scene.climb||0)/(stop>=0?stop:words.length);x+=jump?40:gap;
+      tokens.push({word,width,x,endX:x+width,y,chapter,local,kind:scene.kind,jump,jumpType,fromX:prev?.endX??x,fromY:prev?.y??y,arc:Math.max(65,((prev?.y??y)-y)/2+35)});x+=width;
     }
-    const capture=scene.kind==='fight'?start+words.indexOf('breath.')+1:null;
-    chapters.push({...scene,start,end:tokens.length,anchor:tokens[start].x,y:tokens.at(-1).y,capture,
-      hang:stop>=0?start+stop:null,hook:stop>=0?start+words.indexOf('hook,')+1:null});
+    const at=word=>start+words.indexOf(word)+1;
+    chapters.push({...scene,start,end:tokens.length,anchor:tokens[start].x,y:tokens.at(-1).y,
+      stop:stop>=0?start+stop:null,kneel:scene.kind==='hearth'?at('knelt'):null,
+      lower:scene.kind==='hearth'?at('lowered'):null,ignite:scene.kind==='hearth'?at('ember.'):null,raise:scene.kind==='hearth'?at('lifted'):null,
+      fireX:scene.kind==='hearth'?stageX+62:null});
   }
   return {tokens,chapters,total:tokens.length};
 }
-// Letters move along a word. Wide gaps are crossed by the separate timed leap.
 export function sampleTrack(track,progress,reduced=false,cursor=track.total-1){
-  // A fully typed but unsubmitted word still belongs to its current platform.
-  const index=clamp(Math.min(Math.floor(progress),cursor),0,track.total-1),p=clamp(progress-index);
-  const token=track.tokens[index],prev=track.tokens[index-1];
-  const jumping=token.jump&&!token.skipJump;
-  const fromX=jumping?(token.kind==='fight'||token.stationary?token.endX:token.x):prev?.endX??token.x,fromY=jumping?token.y:prev?.y??token.y;
+  const index=clamp(Math.min(Math.floor(progress),cursor),0,track.total-1),p=clamp(progress-index),token=track.tokens[index],prev=track.tokens[index-1],jumping=token.jump&&!token.skipJump;
+  const fromX=jumping?(token.stationary?token.endX:token.x):prev?.endX??token.x,fromY=jumping?token.y:prev?.y??token.y;
   return {x:lerp(fromX,token.endX,p),y:lerp(fromY,token.y,p),p,index,token,air:0};
 }
 export function checkpoint(track,index){return track.chapters[track.tokens[clamp(index,0,track.total-1)].chapter].start;}

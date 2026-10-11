@@ -129,12 +129,12 @@ export function risePose(p,time=0,complete=false){
   if(p<.68)return blendPose(PUSHUP,KNEEL,smooth((p-.34)/.34));
   return blendPose(KNEEL,idle,smooth((p-.68)/.32));
 }
-export function drawFigure(ctx,pose,color='#ed722e'){
-  ctx.strokeStyle=color;ctx.lineWidth=4.6;ctx.lineCap='round';ctx.lineJoin='round';
+export function drawFigure(ctx,pose,color='#ed722e',style={}){
+  ctx.strokeStyle=color;ctx.lineWidth=style.weight||4.6;ctx.lineCap='round';ctx.lineJoin='round';
   function stroke(joints){ctx.beginPath();joints.forEach((joint,i)=>i?ctx.lineTo(...pose[joint]):ctx.moveTo(...pose[joint]));ctx.stroke();}
   stroke(['backShoulder','backElbow','backHand']);stroke(['hip','backKnee','backFoot']);
   stroke(['neck','hip']);stroke(['hip','frontKnee','frontFoot']);stroke(['frontShoulder','frontElbow','frontHand']);
-  ctx.lineWidth=4.4;ctx.beginPath();ctx.arc(...pose.head,10,0,TAU);ctx.stroke();
+  ctx.lineWidth=style.headWeight||4.4;ctx.beginPath();ctx.arc(...pose.head,style.headRadius||10,0,TAU);ctx.stroke();
 }
 
 // Critically damped travel, with a continuous velocity across individual key presses.

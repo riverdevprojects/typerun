@@ -1,4 +1,5 @@
 import {stroke} from './scenery.js';
+import {landmarkX} from './journey.js';
 const TAU=Math.PI*2,fract=n=>n-Math.floor(n),seed=n=>fract(Math.sin(n*127.1+311.7)*43758.5453);
 const mixColor=(a,b,t)=>'#'+[1,3,5].map(i=>Math.round(parseInt(a.slice(i,i+2),16)*(1-t)+parseInt(b.slice(i,i+2),16)*t).toString(16).padStart(2,'0')).join('');
 function poly(ctx,points,fill,line='#bac7bc',weight=1){
@@ -87,27 +88,18 @@ function turret(ctx,x,base,w,h){
   stroke(ctx,[[x+w*.62,top+27],[x+w*.54,top+68],[x+w*.59,top+79],[x+w*.48,top+110]],'#9eaf9e');
   poly(ctx,[[x+w*.32,base],[x+w*.32,base-61],[x+w*.49,base-79],[x+w*.66,base-61],[x+w*.66,base]],'#c3d0c2','#a5b8a6');
 }
-function summit(ctx,kind,a){
+function watchtower(ctx,a){
   const {width,height,cameraX,cameraY}=a;
   cells(width,cameraX,.12,360,(x,i)=>{ctx.save();ctx.globalAlpha*=.4;turret(ctx,x+15,height*.91,45+seed(i)*30,130+seed(i+8)*70);ctx.restore();});
   haze(ctx,width,height*.69,36);
-  const tx=width*.78-(cameraX*.16)%105,base=height*1.07-cameraY*.015;turret(ctx,tx-48,base,106,height*.79);
-  if(kind==='tower'){
-    cells(width,cameraX,.25,220,(x,i)=>rock(ctx,x+15,height*.87,70,65+seed(i)*60));
-    haze(ctx,width,height*.9,52,'#f6f9f1');
-  }else{
-    const cx=width*.84,cy=height*.77;
-    rock(ctx,cx-95,cy+60,215,height*.56);
-    poly(ctx,[[cx-49,cy+14],[cx-43,cy-71],[cx-16,cy-103],[cx+15,cy-98],[cx+45,cy-67],[cx+49,cy+15]],'#8d9e90','#a7b8a6',1.5);
-    poly(ctx,[[cx-32,cy+13],[cx-28,cy-62],[cx-8,cy-84],[cx+18,cy-74],[cx+31,cy-52],[cx+30,cy+13]],'#6e8275',null);
-    stroke(ctx,[[cx-62,cy-79],[cx-32,cy-118],[cx+17,cy-112],[cx+56,cy-74]],'#b5c4ae',2);
-    for(let i=0;i<4;i++)stroke(ctx,[[cx+56+i*7,cy-16],[cx+50+i*7,cy-39-i*5]],'#a7b895',1);
-    ground(ctx,a);
-  }
+  const tx=landmarkX(width,a.towerX||0,cameraX),base=height*1.07-cameraY*.015;
+  turret(ctx,tx-48,base,106,height*.79);
+  cells(width,cameraX,.25,220,(x,i)=>rock(ctx,x+15,height*.87,70,65+seed(i)*60));
+  haze(ctx,width,height*.9,52,'#f6f9f1');
 }
 function cave(ctx,a){
   const {width,height,cameraX}=a,g=ctx.createLinearGradient(0,0,0,height);
-  g.addColorStop(0,'#c2cfba');g.addColorStop(.6,'#e5ebdf');g.addColorStop(1,'#e2e8d8');ctx.fillStyle=g;ctx.fillRect(0,0,width,height);
+  g.addColorStop(0,mixColor('#c2cbbe','#d8c8af',a.lit||0));g.addColorStop(.6,mixColor('#e1e7db','#f1e5c9',a.lit||0));g.addColorStop(1,mixColor('#d9e0d2','#e4d6b6',a.lit||0));ctx.fillStyle=g;ctx.fillRect(0,0,width,height);
   for(let i=0;i<3;i++)curve(ctx,[[width*.03-i*20,height*.64],[width*.06,25+i*21],[width*.85,10+i*18],[width*.98+i*22,height*.68]],'#acbea340',2);
   cells(width,cameraX,.23,165,(x,i)=>{
     const h=40+seed(i)*95;poly(ctx,[[x,0],[x+64,0],[x+35,h],[x+21,h*.5]],'#c4d0bf','#acbfa9');
@@ -117,32 +109,20 @@ function cave(ctx,a){
   cells(width,cameraX,.38,110,(x,i)=>{const y=height*(.25+seed(i)*.42);stroke(ctx,[[x,y],[x+32,y-4],[x+44,y+5]],'#becdb6',.8);});
   haze(ctx,width,height*.65,65,'#f0f4e8');ground(ctx,a);
 }
-function dawn(ctx,a){
-  const {width,height,cameraX,time,reduced}=a;
-  cells(width,cameraX,.17,105,(x,i)=>pine(ctx,x,height*.77,40+seed(i)*55,'#d2dcbf'));
-  poly(ctx,[[0,height],[0,height*.91],[width*.22,height*.82],[width*.47,height*.89],[width*.8,height*.79],[width,height*.87],[width,height]],'#e3e9d3',null);
-  cells(width,cameraX,.39,220,(x,i)=>{curve(ctx,[[x,height*.89],[x+68,height*.86],[x+105,height*.98],[x+202,height*.91]],'#c2cfac');for(let k=0;k<4;k++){const bx=x+118+k*12,by=height*.93;stroke(ctx,[[bx,by],[bx-2,by-15]],'#aebe97',.8);circle(ctx,bx-2,by-15,1.8,'#dfb58a');}});
-  ground(ctx,a,true);
-  for(let i=0;i<3;i++){const x=width*.3+i*39-cameraX*.025,y=height*.28+i%2*11+(reduced?0:Math.sin(time+i)*2);curve(ctx,[[x-5,y],[x-1,y-4],[x-1,y-3],[x,y]],'#a9b89e',.9);curve(ctx,[[x,y],[x+2,y-4],[x+3,y-4],[x+6,y]],'#a9b89e',.9);}
-}
 export function paintScene(ctx,kind,a){
-  const {width,height,cameraX,time=0,sunrise=0}=a,dawnScene=kind==='dawn';ctx.save();
-  const g=ctx.createLinearGradient(0,0,0,height);
-  g.addColorStop(0,dawnScene?mixColor('#e7ece2','#f2e5cd',sunrise):kind==='tower'?'#e5ecee':'#e7ece2');g.addColorStop(.72,dawnScene?mixColor('#f6f8f2','#fffaf0',sunrise):'#f6f8f2');g.addColorStop(1,'#edf2e9');ctx.fillStyle=g;ctx.fillRect(0,0,width,height);
-  const mx=width*.79-cameraX*.008%45,my=height*.22,r=24;
-  ctx.save();ctx.globalAlpha*=dawnScene?1-sunrise:1;circle(ctx,mx,my,r,'#f7f9ef');ctx.lineWidth=.9;ctx.strokeStyle='#c4cfbe';ctx.stroke();circle(ctx,mx+7,my-5,4,'#e9eedf');circle(ctx,mx-9,my+9,6,'#e9eedf');ctx.restore();
-  cells(width,cameraX,.035,185,(x,i)=>{const y=height*(.12+seed(i+19)*.35);curve(ctx,[[x,y],[x+45,y-8],[x+96,y+11],[x+155,y-1]],'#ffffff85',9);});
-  if(['forest','bridge','tower'].includes(kind)){
-    const peak=width*.7-(cameraX*.018)%65,py=height*.19;
+  const {width,height,cameraX}=a;ctx.save();
+  if(kind==='cave'||kind==='hearth')cave(ctx,a);
+  else{
+    const g=ctx.createLinearGradient(0,0,0,height);g.addColorStop(0,kind==='tower'?'#e5ecee':'#e7ece2');g.addColorStop(.72,'#f6f8f2');g.addColorStop(1,'#edf2e9');ctx.fillStyle=g;ctx.fillRect(0,0,width,height);
+    const mx=width*.79-cameraX*.008,my=height*.22;
+    circle(ctx,mx,my,24,'#f7f9ef');ctx.lineWidth=.9;ctx.strokeStyle='#c4cfbe';ctx.stroke();circle(ctx,mx+7,my-5,4,'#e9eedf');circle(ctx,mx-9,my+9,6,'#e9eedf');
+    cells(width,cameraX,.035,185,(x,i)=>{const y=height*(.12+seed(i+19)*.35);curve(ctx,[[x,y],[x+45,y-8],[x+96,y+11],[x+155,y-1]],'#ffffff85',9);});
+    const peak=width*.7+((a.towerX||0)-cameraX)*.018,py=height*.19;
     poly(ctx,[[peak-220,height*.86],[peak-70,py+81],[peak-43,py+91],[peak,py],[peak+38,py+65],[peak+65,py+50],[peak+195,height*.83]],'#dce5d7','#c3d0bf',.8);
     stroke(ctx,[[peak,py],[peak-20,py+82],[peak+4,py+109],[peak-22,py+162]],'#c5d3c1',.9);
     poly(ctx,[[peak,py],[peak-15,py+32],[peak-6,py+24],[peak+4,py+37],[peak+17,py+29]],'#f4f7ed',null);
+    ridge(ctx,a,.35,false);ridge(ctx,a,.8,false);
+    if(kind==='forest')forest(ctx,a);else if(kind==='bridge')bridge(ctx,a);else watchtower(ctx,a);
   }
-  ridge(ctx,a,.35,dawnScene);ridge(ctx,a,.8,dawnScene);
-  if(kind==='forest')forest(ctx,a);else if(kind==='bridge')bridge(ctx,a);else if(kind==='cave')cave(ctx,a);else if(dawnScene)dawn(ctx,a);else summit(ctx,kind,a);
-  if(dawnScene&&sunrise>0){
-    ctx.save();ctx.globalAlpha*=sunrise;const sx=width*.65,sy=height*(.65-sunrise*.44);const glow=ctx.createRadialGradient(sx,sy,0,sx,sy,110);glow.addColorStop(0,'#ffda9390');glow.addColorStop(1,'#ffda9300');ctx.fillStyle=glow;ctx.fillRect(sx-110,sy-110,220,220);circle(ctx,sx,sy,25,'#f2c678');ctx.restore();
-  }
-  // Leave the words as the highest-contrast detail on a soft paper wash.
   const wash=ctx.createLinearGradient(0,height*.58,0,height*.83);wash.addColorStop(0,'#f8faf300');wash.addColorStop(.55,'#f8faf350');wash.addColorStop(1,'#f8faf300');ctx.fillStyle=wash;ctx.fillRect(0,height*.58,width,height*.25);ctx.restore();
 }
