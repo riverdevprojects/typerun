@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {idlePose,runPose,tripPose,fallPose,landPose,risePose,advanceTravel} from '../dist/motion.js';
+import {idlePose,walkPose,runPose,runningBlend,tripPose,fallPose,landPose,risePose,advanceTravel} from '../dist/motion.js';
 const near=(a,b,tolerance=1e-7)=>assert.ok(Math.abs(a-b)<tolerance,`${a} differs from ${b}`);
 const compare=(a,b,tolerance=1e-7)=>Object.keys(a).forEach(joint=>a[joint].forEach((v,i)=>near(v,b[joint][i],tolerance)));
 
@@ -27,6 +27,24 @@ test('trip and fall begin from the pose that was actually on screen',()=>{
   compare(tripPose(entry,base,0),entry);compare(tripPose(entry,base,1),base);
   compare(fallPose(entry,0),entry);compare(fallPose(entry,0,true),entry);
   compare(landPose(entry,0),entry);
+});
+test('walking has continuous ground contact and running has an airborne phase',()=>{
+  let airborne=false,maxWalkLift=0,maxRunLift=0,walkReach=0,runReach=0;
+  for(let p=0;p<Math.PI*2;p+=.01){
+    const w=walkPose(p),r=runPose(p);
+    assert.ok(w.frontFoot[1]<=-3&&w.backFoot[1]<=-3);
+    assert.ok(Math.abs(w.frontFoot[1]+3)<1e-7||Math.abs(w.backFoot[1]+3)<1e-7);
+    if(r.frontFoot[1]<-4&&r.backFoot[1]<-4)airborne=true;
+    maxWalkLift=Math.max(maxWalkLift,-w.frontFoot[1]-3);maxRunLift=Math.max(maxRunLift,-r.frontFoot[1]-3);
+    walkReach=Math.max(walkReach,Math.abs(w.frontFoot[0]));runReach=Math.max(runReach,Math.abs(r.frontFoot[0]));
+  }
+  assert.ok(airborne);assert.ok(maxRunLift>maxWalkLift*2);assert.ok(runReach>walkReach*1.5);
+  compare(walkPose(0),walkPose(Math.PI*2));
+});
+test('slow travel selects walking and fast travel selects running continuously',()=>{
+  assert.equal(runningBlend(30),0);assert.equal(runningBlend(120),1);
+  for(let speed=52;speed<96;speed+=.1)assert.ok(runningBlend(speed+.1)>=runningBlend(speed));
+  near(runningBlend(52-1e-5),runningBlend(52+1e-5));near(runningBlend(96-1e-5),runningBlend(96+1e-5));
 });
 test('get-up joins the landing pose and ends in idle without a pop',()=>{
   const entry=runPose(1);

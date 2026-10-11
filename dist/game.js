@@ -1,5 +1,5 @@
 import { STORIES, classifyWord, matchingPrefix, layoutWords } from './engine.js';
-import {idlePose,runPose,blendPose,tripPose,fallPose,landPose,risePose,drawFigure,advanceTravel} from './motion.js';
+import {idlePose,walkPose,runPose,runningBlend,strideLength,blendPose,tripPose,fallPose,landPose,risePose,drawFigure,advanceTravel} from './motion.js';
 
 const $ = id => document.getElementById(id);
 const canvas=$('stage'), ctx=canvas.getContext('2d'), input=$('typing');
@@ -13,6 +13,7 @@ let wordsTraveled=0, falls=0, attemptedChars=0, correctChars=0, elapsed=0;
 let best=0, started=false, soundEnabled=false, audio=null, particles=[];
 let storyComplete=false, lastStats=0, feedbackUntil=0, mismatch=false;
 let runWeight=0,motionTime=0,renderedPose=idlePose(0),transitionPose=renderedPose;
+let pace=0,gaitMix=0;
 try { best=Number(localStorage.getItem('typerun-best')||0)||0; } catch {}
 const GAP=19, LEVEL_HEIGHT=365;
 const mix=(a,b,t)=>a+(b-a)*t;
@@ -137,7 +138,7 @@ function finishTransition(){
   level++;wordIndex=0;typed='';input.value='';mismatch=false;
   targetX=wordX();runnerX=targetX;runnerY=floorY+level*LEVEL_HEIGHT;
   mode='playing';animationTime=0;storyComplete=false;metadata();input.disabled=false;
-  velocity=0;runWeight=0;
+  velocity=0;runWeight=0;pace=0;gaitMix=0;
   feedback('A fresh story. Take your first step.','',2000);status('Back on your feet');
   if(!paused&&!$('help-dialog').open)input.focus({preventScroll:true});
 }
@@ -147,6 +148,7 @@ function reset(){
   cameraX=0;cameraY=0;runnerX=95;runnerY=floorY;targetX=95;
   gait=0;velocity=0;lastKey=0;particles=[];animationTime=0;storyComplete=false;mismatch=false;
   runWeight=0;motionTime=0;renderedPose=idlePose(0);transitionPose=renderedPose;
+  pace=0;gaitMix=0;
   levels=[makeLevel(0)];input.value='';input.disabled=false;
   $('pause-overlay').hidden=true;$('start-hint').style.opacity='1';
   $('pause').innerHTML='<kbd>esc</kbd> pause';
@@ -167,7 +169,8 @@ function line(points,color=orange,weight=4.6){
   ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.stroke();
 }
 function drawRunner(){
-  const base=blendPose(idlePose(motionTime),runPose(gait,Math.abs(velocity)/260),runWeight);
+  const traveling=blendPose(walkPose(gait),runPose(gait,pace/150),gaitMix);
+  const base=blendPose(idlePose(motionTime),traveling,runWeight);
   let pose=base;
   if(mode==='stumble')pose=tripPose(transitionPose,base,animationTime/.82);
   else if(mode==='falling')pose=fallPose(transitionPose,animationTime/(reducedMotion?.4:.8),reducedMotion);
@@ -233,7 +236,10 @@ function frame(now){
     }else{
       const previousX=runnerX,travel=advanceTravel(runnerX,velocity,targetX,dt);
       runnerX=travel.position;velocity=travel.velocity;runnerY=floorY+level*LEVEL_HEIGHT;
-      if(!reducedMotion)gait+=Math.abs(runnerX-previousX)/104*Math.PI*2;
+      // Average travel over several keystrokes so one tap cannot switch into a sprint.
+      pace=mix(pace,Math.abs(velocity),ease(3.5,dt));
+      gaitMix=mix(gaitMix,runningBlend(pace),ease(7,dt));
+      if(!reducedMotion)gait+=Math.abs(runnerX-previousX)/strideLength(gaitMix)*Math.PI*2;
       const weight=reducedMotion?0:clamp(Math.abs(velocity)/70,0,1);
       runWeight=mix(runWeight,weight,ease(weight>runWeight?14:10,dt));
       if(runWeight<.001)runWeight=0;

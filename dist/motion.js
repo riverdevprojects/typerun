@@ -27,21 +27,45 @@ const LEG=[
   {knee:[18,-25],foot:[24,-15]}
 ];
 function cubic(a,b,c,d,t){return .5*((2*b)+(-a+c)*t+(2*a-5*b+4*c-d)*t*t+(-a+3*b-3*c+d)*t*t*t);}
-function legAt(phase){
-  const f=((phase/TAU)%1+1)%1*LEG.length,i=Math.floor(f),t=f-i;
+const WALK_LEG=[
+  {knee:[6,-19],foot:[13,-3]},
+  {knee:[3,-18],foot:[7,-3]},
+  {knee:[-1,-18],foot:[0,-3]},
+  {knee:[-6,-19],foot:[-7,-3]},
+  {knee:[-11,-20],foot:[-13,-3]},
+  {knee:[-13,-20],foot:[-17,-4]},
+  {knee:[-4,-19],foot:[-8,-13]},
+  {knee:[6,-19],foot:[9,-10]}
+];
+function legAt(phase,keys=LEG,stance=.375,lift=31){
+  const f=((phase/TAU)%1+1)%1*keys.length,i=Math.floor(f),t=f-i;
   const result={};
-  for(const joint of ['knee','foot'])result[joint]=[0,1].map(axis=>cubic(LEG[(i+7)%8][joint][axis],LEG[i][joint][axis],LEG[(i+1)%8][joint][axis],LEG[(i+2)%8][joint][axis],t));
-  const swing=clamp((f/LEG.length-.375)/.625);
+  for(const joint of ['knee','foot'])result[joint]=[0,1].map(axis=>cubic(keys[(i+7)%8][joint][axis],keys[i][joint][axis],keys[(i+1)%8][joint][axis],keys[(i+2)%8][joint][axis],t));
+  const swing=clamp((f/keys.length-stance)/(1-stance));
   // A flat stance and a squared-sine swing meet with zero vertical velocity.
   // Clipping a cubic at ground height would introduce a visible landing jerk.
-  result.foot[1]=-3-Math.sin(Math.PI*swing)**2*31;return result;
+  result.foot[1]=-3-Math.sin(Math.PI*swing)**2*lift;return result;
 }
-function arm(shoulder,angle){
+function arm(shoulder,angle,bend=1.05){
   const elbow=[shoulder[0]+Math.sin(angle)*15,shoulder[1]+Math.cos(angle)*15];
   // Hands point forward; the bend is authored rather than choosing the wrong IK branch.
-  const forearm=angle+1.05;
+  const forearm=angle+bend;
   return {elbow,hand:[elbow[0]+Math.sin(forearm)*15,elbow[1]+Math.cos(forearm)*15]};
 }
+export function walkPose(phase){
+  const bounce=Math.cos(phase*2)*.55;
+  // More than half of each step is planted: walking always has a supporting foot.
+  const back=legAt(phase+Math.PI,WALK_LEG,.6,11),front=legAt(phase,WALK_LEG,.6,11);
+  const backShoulder=[3,-55+bounce],frontShoulder=[-2,-55+bounce];
+  const backArm=arm(backShoulder,Math.cos(phase)*.32-.04,.12);
+  const frontArm=arm(frontShoulder,-Math.cos(phase)*.32-.04,.12);
+  return {head:[2,-72+bounce],neck:[1,-58+bounce],hip:[-1,-34+bounce],
+    backShoulder,backElbow:backArm.elbow,backHand:backArm.hand,
+    frontShoulder,frontElbow:frontArm.elbow,frontHand:frontArm.hand,
+    backKnee:back.knee,backFoot:back.foot,frontKnee:front.knee,frontFoot:front.foot};
+}
+export function runningBlend(speed){return smooth((Math.abs(speed)-52)/44);}
+export function strideLength(runBlend){return lerp(70,104,clamp(runBlend));}
 export function runPose(phase,intensity=1){
   const bounce=Math.cos(phase*2)*1.4, lean=clamp(intensity)*2;
   const back=legAt(phase+Math.PI),front=legAt(phase);
