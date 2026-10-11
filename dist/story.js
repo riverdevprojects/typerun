@@ -37,12 +37,12 @@ function actionFor(word,i){
   if(/broke|chain|heart/.test(word))return 'finish';
   return i%3===0?'parry':'slash';
 }
-// Story progress is the animation clock: no typing, no autonomous jump or attack.
-export function sampleTrack(track,progress,reduced=false){
-  const index=clamp(Math.floor(progress),0,track.total-1),p=progress>=track.total?1:clamp(progress-index);
+// Letters move along a word. Wide gaps are crossed by the separate timed leap.
+export function sampleTrack(track,progress,reduced=false,cursor=track.total-1){
+  // A fully typed but unsubmitted word still belongs to its current platform.
+  const index=clamp(Math.min(Math.floor(progress),cursor),0,track.total-1),p=clamp(progress-index);
   const token=track.tokens[index],prev=track.tokens[index-1];
-  const fromX=prev?.endX??token.x,fromY=prev?.y??token.y;
-  const arc=token.jump&&!reduced?Math.sin(p*Math.PI)*token.arc:0;
-  return {x:lerp(fromX,token.endX,p),y:lerp(fromY,token.y,p)-arc,p,index,token,air:token.jump?Math.sin(p*Math.PI):0};
+  const fromX=token.jump?token.x:prev?.endX??token.x,fromY=token.jump?token.y:prev?.y??token.y;
+  return {x:lerp(fromX,token.endX,p),y:lerp(fromY,token.y,p),p,index,token,air:0};
 }
 export function checkpoint(track,index){return track.chapters[track.tokens[clamp(index,0,track.total-1)].chapter].start;}

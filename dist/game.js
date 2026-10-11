@@ -3,6 +3,7 @@ import {idlePose,walkPose,runPose,runningBlend,strideLength,blendPose,tripPose,f
 import {STORY,createTrack,sampleTrack,checkpoint,clamp,lerp} from './story.js';
 import {dragPose,jumpPose,combatPose,swordAngle,drawSword,victoryPose} from './story-motion.js';
 import {paintScene,stroke,drawDragon,drawLantern} from './scenery.js';
+import {EDGE_TIME,checkJump,sampleEdge,sampleLeap,leapDuration,visibleWords} from './leap.js';
 const $=id=>document.getElementById(id),canvas=$('stage'),ctx=canvas.getContext('2d'),input=$('typing');
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches,orange='#ed722e';
 const ease=(rate,dt)=>1-Math.exp(-rate*dt);
@@ -12,9 +13,26 @@ let cameraX=0,cameraY=0,lastTime=0,time=0,elapsed=0,started=false;
 let gait=0,pace=0,gaitMix=0,moveMix=0,renderedPose=idlePose(),entryPose=renderedPose;
 let timer=0,fallOrigin=null,checkpointIndex=0,accepted=0,correct=0,attempted=0,falls=0,jumps=0;
 let sound=false,audio=null,best=0,particles=[],lastStats=0,sceneKind='forest',previousKind='forest',sceneFade=1;
+let edgeOrigin=null,leapOrigin=null,jumpReady=false;
 try{best=Number(localStorage.getItem('typerun-v2-best')||0)||0;}catch{}
 function expected(){return track.tokens[index]?.word||'';}
-function available(){return !paused&&['ready','playing','stumble'].includes(mode);}
+function available(){return !paused&&['ready','playing','stumble','gap'].includes(mode);}
+function currentSample(){
+  if(mode==='gap')return sampleEdge(track,index,edgeOrigin,timer);
+  if(mode==='leaping')return sampleLeap(track,index,leapOrigin,timer,reduced);
+  if(mode==='falling')return {...fallOrigin,y:fallOrigin.y+(reduced?150:340)*(timer/.8)**2};
+  return sampleTrack(track,progress,reduced,index);
+}
+function fall(message){
+  fallOrigin=currentSample();falls++;checkpointIndex=checkpoint(track,index);entryPose=renderedPose;
+  mode='falling';timer=0;input.disabled=true;typed='';input.value='';
+  burst(fallOrigin.x,fallOrigin.y+12,'',9);feedback(message,'error');status('A slip into the margins');tone(100,.3,.045);stats();
+}
+function launch(){
+  leapOrigin=currentSample();entryPose=renderedPose;mode='leaping';timer=0;jumps++;
+  progress=index;target=index;progressVelocity=0;typed='';input.value='';input.disabled=true;
+  tone(track.tokens[index].number?440+Number(expected())*90:420,.09);stats();
+}
 function status(text){if($('state-label').textContent.trim()===text)return;$('state-label').replaceChildren();const dot=document.createElement('span');dot.className='status-dot';$('state-label').append(dot,document.createTextNode(text));}
 function feedback(text,kind=''){$('feedback').textContent=text;$('feedback').className=kind;}
 function metadata(){
@@ -45,6 +63,13 @@ function start(){started=true;$('start-hint').hidden=true;if(mode==='ready')mode
 function onInput(){
   if(!available()){input.value=typed;return;}
   const value=input.value;
+  if(mode==='gap'){
+    typed=value;
+    const result=checkJump(typed,timer+Math.max(0,(performance.now()-lastTime)/1000));
+    if(result==='fall')fall('You missed the crossing. Back to this scene’s checkpoint.');
+    else if(result==='jump'){jumpReady=true;input.disabled=true;if(timer>=EDGE_TIME)launch();}
+    return;
+  }
   if(/\s/.test(value)){
     const trimmed=value.trim();if(/\s/.test(trimmed)){input.value=typed;feedback('One word at a time. Your typing tells the story.','warn');return;}
     typed=trimmed;input.value=typed;commit();return;
@@ -55,19 +80,19 @@ function onInput(){
   else feedback(track.tokens[index].kind==='fight'?'Finish the word to finish the move.':'Keep going. Space finishes the word.');
 }
 function commit(){
+  if(mode==='gap'&&!paused){if(!jumpReady)fall('You missed the crossing. Back to this scene’s checkpoint.');return;}
   if(!available()||!typed)return;start();const word=expected(),result=classifyWord(typed,word);
   attempted+=Math.max(typed.length,word.length);for(let i=0;i<Math.min(typed.length,word.length);i++)if(typed[i].toLowerCase()===word[i].toLowerCase())correct++;
   if(result==='fall'){
-    falls++;checkpointIndex=checkpoint(track,index);entryPose=renderedPose;fallOrigin=sampleTrack(track,progress,reduced);mode='falling';timer=0;input.disabled=true;
-    burst(fallOrigin.x,fallOrigin.y+12,word,9);feedback('The word gives way. Back to this scene’s checkpoint.','error');status('A slip into the margins');tone(100,.3,.045);stats();return;
+    fall('The word gives way. Back to this scene’s checkpoint.');return;
   }
-  if(track.tokens[index].jump)jumps++;
   if(track.tokens[index].kind==='fight'){const t=track.tokens[index];burst(t.endX+65,t.y-52,'',6);tone(t.action==='parry'?640:240,.1,.035);}
-  else if(track.tokens[index].jump)tone(track.tokens[index].number?440+Number(word)*90:420,.09);
+  const origin=currentSample();
   accepted++;index++;target=index;typed='';input.value='';
   if(index===track.total){mode='finishing';input.disabled=true;feedback('The last word. The first morning.');status('Let there be light');}
   else{
-    if(result==='stumble'){entryPose=renderedPose;mode='stumble';timer=0;feedback('A familiar typo. A little stumble, then onward.','warn');tone(170,.12);}
+    if(track.tokens[index].jump){edgeOrigin=origin;mode='gap';timer=0;jumpReady=false;feedback('');}
+    else if(result==='stumble'){entryPose=renderedPose;mode='stumble';timer=0;feedback('A familiar typo. A little stumble, then onward.','warn');tone(170,.12);}
     else if(mode!=='stumble'){feedback('Keep going. Space finishes the word.');}
   }
   metadata();stats();
@@ -79,12 +104,13 @@ function reset(){
   index=0;typed='';progress=0;progressVelocity=0;target=0;mode='ready';paused=false;cameraX=0;cameraY=0;
   time=0;elapsed=0;started=false;gait=0;pace=0;gaitMix=0;moveMix=0;timer=0;accepted=0;correct=0;attempted=0;falls=0;jumps=0;particles=[];
   renderedPose=idlePose();entryPose=renderedPose;sceneKind='forest';previousKind='forest';sceneFade=1;
+  edgeOrigin=null;leapOrigin=null;jumpReady=false;
   input.value='';input.disabled=false;$('start-hint').hidden=false;$('pause-overlay').hidden=true;$('ending-overlay').hidden=true;
   $('pause').innerHTML='<kbd>esc</kbd> pause';metadata();stats();status('A story waiting to wake');feedback('Start with “the”. Space finishes each word.');input.focus({preventScroll:true});
 }
 function pause(value){
   if(paused===value)return;paused=value;$('pause-overlay').hidden=!value;$('ending-overlay').hidden=value||mode!=='complete';
-  input.disabled=value||!['ready','playing','stumble'].includes(mode);$('pause').innerHTML=`<kbd>esc</kbd> ${value?'resume':'pause'}`;
+  input.disabled=value||!['ready','playing','stumble','gap'].includes(mode);$('pause').innerHTML=`<kbd>esc</kbd> ${value?'resume':'pause'}`;
   status(value?'Paused':mode==='complete'?'A promise kept':'Your story continues');if(!input.disabled)input.focus({preventScroll:true});
 }
 function resize(){
@@ -95,21 +121,14 @@ function resize(){
 }
 function drawWords(sample){
   ctx.font=`${fontSize}px "Space Mono",Consolas,monospace`;ctx.textBaseline='alphabetic';
-  const fight=track.tokens[Math.min(index,track.total-1)].kind==='fight'&&sample.token.kind==='fight';
-  for(const [i,t] of track.tokens.entries()){
-    if(t.chapter>sample.token.chapter)continue;
-    if(t.kind==='fight'){
-      if(!fight||i!==index)continue;
-    }else if(fight)continue;
+  for(const {index:i,token:t} of visibleWords(track,index)){
     const x=t.x-cameraX,y=t.y-cameraY+floor;
     if(x+t.width<-100||x>width+80||y<-60||y>height+55)continue;
-    if(i===index&&mode==='falling')continue;
     const active=i===index&&index<track.total;
     ctx.fillStyle=i<index?'#839c7f':active?'#34423b':'#aebcab';ctx.fillText(t.word,x,y+fontSize*.8);
     if(active){
-      const prefix=matchingPrefix(typed,t.word);if(prefix){ctx.fillStyle=orange;ctx.fillText(t.word.slice(0,prefix),x,y+fontSize*.8);}
+      const prefix=['gap','leaping'].includes(mode)?0:matchingPrefix(typed,t.word);if(prefix){ctx.fillStyle=orange;ctx.fillText(t.word.slice(0,prefix),x,y+fontSize*.8);}
       stroke(ctx,[[x+prefix*charWidth,y+fontSize+7],[x+t.width,y+fontSize+7]],prefix<typed.length?'#c97655':orange,2);
-      if(t.jump){ctx.font='9px "DM Sans",sans-serif';ctx.fillStyle='#879685';ctx.fillText(t.number?'↑ STEP '+t.word:'↗ LEAP',x,y+fontSize+27);ctx.font=`${fontSize}px "Space Mono",Consolas,monospace`;}
     }
     if(t.kind==='bridge'&&t.jump)stroke(ctx,[[x+8,y+fontSize+48],[x+t.width*.5,y+fontSize+55],[x+t.width-7,y+fontSize+46]],'#c3d4c9',1.4);
   }
@@ -118,7 +137,8 @@ function poseFor(sample){
   const idleTime=reduced?0:time;
   const travel=blendPose(walkPose(gait),runPose(gait,pace/150),gaitMix);
   let pose=dragPose(blendPose(idlePose(idleTime),travel,moveMix));
-  if(sample.token.jump&&!reduced)pose=jumpPose(pose,sample.p);
+  if(mode==='gap')pose=blendPose(pose,jumpPose(pose,.12),smooth(timer/.5)*.45);
+  if(mode==='leaping'&&!reduced)pose=blendPose(jumpPose(entryPose,sample.p),dragPose(idlePose(idleTime)),smooth((sample.p-.75)/.25));
   if(sample.token.kind==='fight')pose=blendPose(pose,combatPose(sample.p,sample.token.action),smooth(sample.token.local===0?sample.p*4:1));
   if(sample.token.kind==='dawn')pose={...pose,frontElbow:[10,-51],frontHand:[19,-63]};
   if(mode==='stumble')pose=tripPose(entryPose,pose,timer/.82);
@@ -148,10 +168,23 @@ function drawCharacter(sample){
   drawFigure(ctx,pose,orange);ctx.restore();
 }
 function frame(now){
-  const dt=Math.min((now-(lastTime||now))/1000,.035);lastTime=now;
+  const realDt=Math.max(0,(now-(lastTime||now))/1000),dt=Math.min(realDt,.035);lastTime=now;
   if(!paused){
-    time+=dt;if(started&&['playing','stumble'].includes(mode))elapsed+=dt;
-    if(mode==='falling'){
+    time+=dt;if(started&&['playing','stumble','gap','leaping'].includes(mode))elapsed+=realDt;
+    if(mode==='gap'){
+      const before=currentSample();
+      timer+=realDt;
+      const after=currentSample();
+      if(!reduced)gait+=Math.abs(after.x-before.x)/strideLength(gaitMix)*Math.PI*2;
+      if(jumpReady&&timer>=EDGE_TIME)launch();
+      else if(checkJump(typed,timer)==='fall')fall('Too late. Back to this scene’s checkpoint.');
+    }else if(mode==='leaping'){
+      timer+=realDt;
+      if(timer>=leapDuration(track.tokens[index])){
+        mode='playing';timer=0;moveMix=0;pace=0;gaitMix=0;
+        input.disabled=false;feedback('Keep going. Space finishes the word.');input.focus({preventScroll:true});
+      }
+    }else if(mode==='falling'){
       timer+=dt;
       if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;metadata();}
     }else if(mode==='recover'){
@@ -159,9 +192,10 @@ function frame(now){
     }else if(mode==='ending'){
       timer+=dt;if(timer>2.3){mode='complete';$('ending-overlay').hidden=false;metadata();stats();status('A promise kept');}
     }else if(mode!=='complete'){
-      const before=sampleTrack(track,progress,reduced),travel=advanceTravel(progress,progressVelocity,target,dt,.13);
+      const before=sampleTrack(track,progress,reduced,index),travel=advanceTravel(progress,progressVelocity,target,dt,.13);
       progress=clamp(travel.position,0,track.total);progressVelocity=travel.velocity;
-      const after=sampleTrack(track,progress,reduced),distance=Math.hypot(after.x-before.x,after.y-before.y);
+      if(Math.abs(target-progress)<.0001&&Math.abs(progressVelocity)<.01){progress=target;progressVelocity=0;}
+      const after=sampleTrack(track,progress,reduced,index),distance=Math.hypot(after.x-before.x,after.y-before.y);
       const speed=distance/Math.max(dt,.001);pace=lerp(pace,speed,ease(3.5,dt));gaitMix=lerp(gaitMix,runningBlend(pace),ease(7,dt));
       if(!reduced)gait+=Math.abs(after.x-before.x)/strideLength(gaitMix)*Math.PI*2;
       const weight=reduced?0:clamp(speed/70);moveMix=lerp(moveMix,weight,ease(weight>moveMix?14:10,dt));
@@ -170,11 +204,12 @@ function frame(now){
     }
     particles.forEach(p=>{p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=300*dt;});particles=particles.filter(p=>p.age<.75);
   }
-  let sample=sampleTrack(track,progress,reduced);
-  if(mode==='falling')sample={...fallOrigin,y:fallOrigin.y+(reduced?150:340)*(timer/.8)**2};
+  const sample=currentSample();canvas.dataset.motion=paused?'paused':mode;
   if(!paused){
     const anchor=sample.token.kind==='fight'?width*.35:width*.3;
     cameraX=lerp(cameraX,Math.max(0,sample.x-anchor),ease(7,dt));
+    const next=track.tokens[Math.min(index,track.total-1)];
+    cameraX=clamp(cameraX,Math.max(0,next.x+next.width-width+28),Math.max(0,next.x-28));
     cameraY=lerp(cameraY,sample.y,ease(reduced?25:3.6,dt));
     if(sceneKind!==sample.token.kind){previousKind=sceneKind;sceneKind=sample.token.kind;sceneFade=0;}
     sceneFade=Math.min(1,sceneFade+dt*2.8);

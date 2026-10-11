@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {STORY,createTrack,sampleTrack,checkpoint} from '../dist/story.js';
 import {idlePose} from '../dist/motion.js';
 import {jumpPose,combatPose,swordAngle} from '../dist/story-motion.js';
+import {EDGE_TIME,JUMP_WINDOW,checkJump,sampleEdge,sampleLeap,leapDuration,visibleWords} from '../dist/leap.js';
 const track=createTrack(word=>word.length*17);
 const near=(a,b)=>assert.ok(Math.abs(a-b)<.001,`${a} differs from ${b}`);
 test('one complete authored story has six reachable scenes and three numbered ascents',()=>{
@@ -11,19 +12,52 @@ test('one complete authored story has six reachable scenes and three numbered as
   const numbers=track.tokens.filter(t=>t.number);assert.deepEqual(numbers.map(t=>t.word),['1','2','3']);
   assert.deepEqual(numbers.map(t=>t.y),[-82,-164,-246]);
 });
-test('path joins every word and every scene continuously, with feet landing at the text',()=>{
+test('solid ground joins continuously; gap words start on their landing platform',()=>{
   for(let i=1;i<track.total;i++){
+    if(track.tokens[i].jump){
+      const t=track.tokens[i],start=sampleTrack(track,i),half=sampleTrack(track,i+.5);
+      near(start.x,t.x);near(start.y,t.y);near(half.y,t.y);continue;
+    }
     const before=sampleTrack(track,i-1e-7),after=sampleTrack(track,i+1e-7);
     near(before.x,after.x);near(before.y,after.y);
     const end=sampleTrack(track,i);near(end.x,track.tokens[i-1].endX);near(end.y,track.tokens[i-1].y);
   }
   const end=sampleTrack(track,track.total);near(end.x,track.tokens.at(-1).endX);near(end.y,track.tokens.at(-1).y);
 });
-test('wide gaps and numbers are real arcs while reduced motion keeps a direct path',()=>{
+test('leaps finish on a clock without another keystroke, including numbered ascents',()=>{
   for(const [i,t] of track.tokens.entries())if(t.jump){
-    const start=sampleTrack(track,i),mid=sampleTrack(track,i+.5),end=sampleTrack(track,i+1),quiet=sampleTrack(track,i+.5,true);
-    assert.ok(mid.y<Math.min(start.y,end.y)-30);near(quiet.y,(start.y+end.y)/2);assert.ok(t.x-track.tokens[i-1].endX>=60);
-    assert.deepEqual(sampleTrack(track,i+.5),mid);
+    const prev=track.tokens[i-1],origin={x:prev.endX,y:prev.y},duration=leapDuration(t);
+    const edge=sampleEdge(track,i,origin,EDGE_TIME);near(edge.x,prev.endX);near(edge.y,prev.y);
+    const start=sampleLeap(track,i,edge,0),mid=sampleLeap(track,i,edge,duration/2),end=sampleLeap(track,i,edge,duration);
+    near(start.x,prev.endX);near(start.y,prev.y);near(end.x,t.x);near(end.y,t.y);
+    near(end.x,sampleTrack(track,i).x);near(end.y,sampleTrack(track,i).y);
+    assert.ok(mid.y<Math.min(start.y,end.y)-30);assert.ok(t.x-prev.endX>=60);
+    const quiet=sampleLeap(track,i,edge,duration/2,true);near(quiet.y,(start.y+end.y)/2);
+    assert.deepEqual(sampleLeap(track,i,edge,duration+5),end);
+  }
+});
+test('jump requires the exact lowercase command before the deadline',()=>{
+  for(const value of ['','j','ju','jum'])assert.equal(checkJump(value,.5),'waiting');
+  assert.equal(checkJump('jump',JUMP_WINDOW-.001),'jump');
+  for(const value of ['JUMP','Jump','jmp','jup','jump ','jumx'])assert.equal(checkJump(value,.2),'fall');
+  for(const value of ['','j','jum','jump'])assert.equal(checkJump(value,JUMP_WINDOW),'fall');
+  const edge=sampleEdge(track,26,{x:track.tokens[25].endX,y:0},JUMP_WINDOW-.001);
+  assert.ok(edge.x>track.tokens[25].endX&&edge.y>35,'a slow entry keeps moving down between the words');
+});
+test('finishing a word without submitting it cannot cross a gap or suspend the runner',()=>{
+  for(const [i,t] of track.tokens.entries())if(t.jump){
+    const previous=track.tokens[i-1],finished=sampleTrack(track,i,false,i-1);
+    near(finished.x,previous.endX);near(finished.y,previous.y);assert.equal(finished.token,previous);
+    const halfway=sampleTrack(track,i+.5,false,i);near(halfway.y,t.y);assert.equal(halfway.air,0);
+  }
+});
+test('the active word is rendered at scene changes and during the fight, independent of animation lag',()=>{
+  for(const chapter of track.chapters){
+    for(const i of [chapter.start,chapter.end-1]){
+      const visible=visibleWords(track,i);
+      assert.ok(visible.some(v=>v.index===i));
+      if(chapter.kind==='fight')assert.deepEqual(visible.map(v=>v.index),[i]);
+    }
   }
 });
 test('combat words replace each other on one spot and errors return to the current scene',()=>{
