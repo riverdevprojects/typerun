@@ -24,6 +24,7 @@ export function updateExtraLayout(track,index,typed,measure){
   }
   for(const chapter of track.chapters){
     chapter.anchor=track.tokens[chapter.start].x;
-    if(chapter.stop!==null)chapter.fireX=track.tokens[chapter.stop].endX+62;
+    if(chapter.kind==='hearth')chapter.fireX=track.tokens[chapter.stop].endX+62;
+    if(chapter.kind==='sky')chapter.skyX=track.tokens[chapter.stop].endX+8;
   }
 }

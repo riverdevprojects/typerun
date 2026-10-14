@@ -13,6 +13,6 @@ export function jumpLandingPose(base,weight=1){
 }
 export function kneelPose(time=0,lower=0){
   const b=Math.sin(time*1.65)*.5;
-  const kneel={...carryPose(idlePose(time)),head:[14,-55-b],neck:[9,-41-b],hip:[-6,-20],frontShoulder:[12,-38],frontElbow:[25,-29],frontHand:[38,-31],backShoulder:[6,-38],backElbow:[-4,-27],backHand:[-12,-20],backKnee:[-19,-4],backFoot:[-33,-3],frontKnee:[14,-15],frontFoot:[28,-3]};
-  return blendPose(kneel,{...kneel,head:[20,-52-b],neck:[14,-38-b],frontShoulder:[16,-35],frontElbow:[33,-27],frontHand:[51,-25]},smooth(lower));
+  const kneel={...carryPose(idlePose(time)),head:[2,-58-b],neck:[1,-44-b],hip:[-5,-25],frontShoulder:[4,-41],frontElbow:[26,-35],frontHand:[37,-30],backShoulder:[-2,-41],backElbow:[3,-29],backHand:[12,-25],backKnee:[-20,-3],backFoot:[-37,-3],frontKnee:[17,-24],frontFoot:[18,-3]};
+  return blendPose(kneel,{...kneel,head:[8,-55-b],neck:[6,-41-b],frontShoulder:[9,-38],frontElbow:[33,-29],frontHand:[51,-25]},smooth(lower));
 }

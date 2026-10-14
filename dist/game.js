@@ -1,8 +1,8 @@
 import {idlePose,walkPose,runPose,runningBlend,strideLength,blendPose,tripPose,fallPose,landPose,risePose,drawFigure,advanceTravel,smooth} from './motion.js';
 import {STORY,createTrack,sampleTrack,checkpoint,clamp,lerp,punctuationJump} from './story.js';
 import {carryPose,jumpPose,jumpLandingPose} from './story-motion.js';
-import {paintScene,stroke,drawLantern,drawCampfire} from './scenery.js';
-import {hearthState,hearthPose} from './journey.js';
+import {paintScene,stroke,drawLantern,drawCampfire,drawSkyLantern} from './scenery.js';
+import {hearthState,hearthPose,skyPose,sunState,SUN_DURATION} from './journey.js';
 import {letterFeedback,insertedKeys,accuracy,belowMinimum,completedPunctuation,updateExtraLayout,ERROR_COLOR,EXTRA_COLOR} from './typing-feedback.js';
 import {sampleLeap,leapDuration,typingFlightRate,visibleWords} from './leap.js';
 const $=id=>document.getElementById(id),canvas=$('stage'),ctx=canvas.getContext('2d'),input=$('typing');
@@ -17,7 +17,7 @@ let sound=false,audio=null,best=0,particles=[],lastStats=0,sceneKind='forest',pr
 let leapOrigin=null,flightToken=null;
 let flightRate=1,landingFraction=0,deferredWord=null,deferredKeys=[],resumeBlend=1,resumePose=renderedPose;
 let landingAge=1;
-let ignitionAge=-1;
+let ignitionAge=-1,sunAge=-1,sunOrigin=null;
 let chapterCorrect=0,chapterInputs=0,wordHistory=new Map();
 function expandWord(i,value){ctx.font=`${fontSize}px "Space Mono",Consolas,monospace`;updateExtraLayout(track,i,value,text=>ctx.measureText(text).width);}
 function recordKeys(keys){
@@ -48,7 +48,7 @@ function fall(message){
   fallOrigin=currentSample();falls++;checkpointIndex=checkpoint(track,index);entryPose=renderedPose;
   mode='falling';timer=0;input.disabled=true;typed='';input.value='';
   deferredWord=null;deferredKeys=[];resumeBlend=1;
-  ignitionAge=-1;
+  ignitionAge=checkpointIndex>=track.chapters.find(c=>c.kind==='hearth').end?1:-1;sunAge=-1;sunOrigin=null;
   burst(fallOrigin.x,fallOrigin.y+12,'',9);feedback(message,'error');status('A slip into the margins');tone(100,.3,.045);stats();
 }
 function launch(origin,type){
@@ -135,9 +135,15 @@ function commit(spaceScored=false){
     return;
   }
   interruptRecovery();
-  const hearth=track.chapters.at(-1);
+  const hearth=track.chapters.find(c=>c.kind==='hearth');
   if(index+1===hearth.ignite){ignitionAge=0;burst(hearth.fireX-12,hearth.y-10,'',10);tone(740,.25,.035);}
-  const origin=currentSample(),jumpType=punctuationJump(typed);
+  const sky=track.chapters.find(c=>c.kind==='sky');
+  if(index+1===sky.hang){
+    const releaseOrigin=currentSample(),pose=poseFor(releaseOrigin),scale=width<550?.92:1.1;
+    sunOrigin={x:releaseOrigin.x+(pose.frontHand[0]+1)*scale,y:releaseOrigin.y+6+pose.frontHand[1]*scale};sunAge=0;
+    burst(sunOrigin.x,sunOrigin.y+18,'',12);tone(880,.3,.03);
+  }
+  const origin=currentSample(),jumpType=punctuationJump(typed,track.tokens[index].stationary);
   wordHistory.set(index,typed);const oldChapter=track.tokens[index].chapter;
   accepted++;index++;target=index;typed='';input.value='';
   if(index<track.total)track.tokens[index].skipJump=!jumpType;
@@ -159,7 +165,7 @@ function reset(){
   leapOrigin=null;flightToken=null;canvas.dataset.jumpKind='';
   flightRate=1;landingFraction=0;deferredWord=null;deferredKeys=[];resumeBlend=1;
   landingAge=1;
-  ignitionAge=-1;
+  ignitionAge=-1;sunAge=-1;sunOrigin=null;
   chapterCorrect=0;chapterInputs=0;wordHistory.clear();
   input.value='';input.disabled=false;$('start-hint').hidden=false;$('pause-overlay').hidden=true;$('ending-overlay').hidden=true;
   $('pause').innerHTML='<kbd>esc</kbd> pause';metadata();stats();status('A story waiting to wake');feedback('Start with “the”. Space finishes each word.');input.focus({preventScroll:true});
@@ -179,7 +185,7 @@ function resize(){
 function drawWords(sample){
   ctx.font=`${fontSize}px "Space Mono",Consolas,monospace`;ctx.textBaseline='alphabetic';
   for(const {index:i,token:t} of visibleWords(track,index)){
-    const x=t.x-cameraX,y=t.y-cameraY+floor;
+    const x=t.x-cameraX,y=t.y-cameraY+floor+(t.stationary?38:0);
     if(x+t.width<-100||x>width+80||y<-60||y>height+55)continue;
     const active=i===index&&index<track.total;
     const value=active?typed:wordHistory.get(i)||'',submitted=wordHistory.has(i),letters=letterFeedback(t.word,value);
@@ -199,8 +205,9 @@ function poseFor(sample){
   const idleTime=reduced?0:time;
   const travel=blendPose(walkPose(gait),runPose(gait,pace/150),gaitMix);
   let pose=carryPose(blendPose(idlePose(idleTime),travel,moveMix));
-  const hearth=track.chapters.at(-1);
+  const hearth=track.chapters.find(c=>c.kind==='hearth');
   if(sample.token.kind==='hearth')pose=hearthPose(pose,hearth,progress,idleTime,ignitionAge);
+  if(sample.token.kind==='sky')pose=skyPose(pose,track.chapters.find(c=>c.kind==='sky'),progress,idleTime,sunAge);
   if(mode==='leaping'&&!reduced){
     const rest=sample.token.kind==='hearth'?hearthPose(carryPose(idlePose(idleTime)),hearth,progress,idleTime,ignitionAge):carryPose(idlePose(idleTime)),base=blendPose(entryPose,rest,smooth(sample.p));
     pose=jumpLandingPose(jumpPose(base,sample.p),smooth((sample.p-.8)/.2));
@@ -209,12 +216,12 @@ function poseFor(sample){
   if(mode==='stumble')pose=tripPose(entryPose,pose,timer/.82);
   if(mode==='falling')pose=fallPose(entryPose,timer/.8,reduced);
   if(mode==='recover')pose=timer<.35?landPose(entryPose,timer/.35):risePose((timer-.35)/.72,idleTime);
-  if(mode==='ending'||mode==='complete')pose=blendPose(pose,carryPose(idlePose(idleTime)),smooth(timer/1.2));
+  if(mode==='ending'||mode==='complete')pose=blendPose(pose,sunAge>=0?idlePose(idleTime):carryPose(idlePose(idleTime)),smooth(timer/1.2));
   if(resumeBlend<1)pose=blendPose(resumePose,pose,smooth(resumeBlend));
   return pose;
 }
 function drawCharacter(sample){
-  const x=sample.x-cameraX,y=sample.y-cameraY+floor;
+  const x=sample.x-cameraX,y=sample.y-cameraY+floor+(sample.token.stationary?6:0);
   let pose=poseFor(sample);if(!paused)renderedPose=pose;else pose=renderedPose;
   ctx.save();ctx.translate(x,y);const scale=width<550?.92:1.1;ctx.scale(scale,scale);
   if(mode==='leaping'&&!reduced&&sample.p<.7){
@@ -224,9 +231,9 @@ function drawCharacter(sample){
     ctx.globalAlpha=strength*.25;ctx.beginPath();ctx.moveTo(-51,-18);ctx.quadraticCurveTo(-47,-49,-27,-59);ctx.stroke();
     ctx.globalAlpha=1;
   }
-  const hearth=track.chapters.at(-1),lit=hearthState(hearth,progress,ignitionAge).lit;
+  const hearth=track.chapters.find(c=>c.kind==='hearth'),lit=hearthState(hearth,progress,ignitionAge).lit;
   const swing=reduced?0:Math.sin(gait)*.09*moveMix+Math.sin(time*1.5)*.025;
-  drawLantern(ctx,pose.frontHand[0]+1,pose.frontHand[1],reduced?0:time,lit,swing);
+  if(sunAge<0)drawLantern(ctx,pose.frontHand[0]+1,pose.frontHand[1],reduced?0:time,lit,swing);
   drawFigure(ctx,pose,orange,{weight:4.1,headWeight:4,headRadius:10.5});ctx.restore();
 }
 function frame(now){
@@ -234,6 +241,7 @@ function frame(now){
   if(!paused){
     time+=dt;landingAge+=dt;
     if(ignitionAge>=0)ignitionAge+=dt;
+    if(sunAge>=0)sunAge+=dt;
     resumeBlend=Math.min(1,resumeBlend+dt/.14);if(started&&['playing','stumble','leaping'].includes(mode))elapsed+=realDt;
     if(mode==='leaping'){
       timer+=realDt*flightRate;
@@ -241,11 +249,11 @@ function frame(now){
       if(timer>=leapDuration(flightToken))land();
     }else if(mode==='falling'){
       timer+=dt;
-      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);clearChapter();index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;flightToken=null;canvas.dataset.jumpKind='';ignitionAge=-1;metadata();stats();input.disabled=false;feedback('');input.focus({preventScroll:true});}
+      if(timer>=.8){entryPose=fallPose(entryPose,1,reduced);clearChapter();index=checkpointIndex;progress=index;target=index;progressVelocity=0;typed='';input.value='';mode='recover';timer=0;flightToken=null;canvas.dataset.jumpKind='';ignitionAge=index>=track.chapters.find(c=>c.kind==='hearth').end?1:-1;sunAge=-1;sunOrigin=null;metadata();stats();input.disabled=false;feedback('');input.focus({preventScroll:true});}
     }else if(mode==='recover'){
       timer+=dt;if(timer>=1.1){mode='playing';moveMix=0;pace=0;gaitMix=0;input.disabled=false;feedback('Back at the checkpoint. The light is still waiting.');input.focus({preventScroll:true});}
     }else if(mode==='ending'){
-      timer+=dt;if(timer>2.3){mode='complete';$('ending-overlay').hidden=false;metadata();stats();status('A promise kept');}
+      timer+=dt;if(timer>2.3&&sunAge>=(reduced?SUN_DURATION/7:SUN_DURATION)){mode='complete';$('ending-overlay').hidden=false;metadata();stats();status('A promise kept');}
     }else if(mode!=='complete'){
       const before=sampleTrack(track,progress,reduced,index),travel=advanceTravel(progress,progressVelocity,target,dt,.13);
       progress=clamp(travel.position,0,track.total);progressVelocity=travel.velocity;
@@ -269,22 +277,30 @@ function frame(now){
     if(sceneKind!==sample.token.kind){previousKind=sceneKind;sceneKind=sample.token.kind;sceneFade=0;}
     sceneFade=Math.min(1,sceneFade+dt*2.8);
   }
-  const hearth=track.chapters.at(-1),lit=hearthState(hearth,progress,ignitionAge).lit;
-  const sceneArgs={width,height,cameraX,cameraY,floor,time:reduced?0:time,reduced,lit,towerX:track.chapters.find(c=>c.kind==='tower').anchor,fireX:hearth.fireX,fireY:hearth.y+24};
+  const hearth=track.chapters.find(c=>c.kind==='hearth'),lit=hearthState(hearth,progress,ignitionAge).lit;
+  const sky=track.chapters.find(c=>c.kind==='sky'),sun=sunState(sunAge,reduced);
+  const sceneArgs={width,height,cameraX,cameraY,floor,day:sun.day,time:reduced?0:time,reduced,lit,towerX:track.chapters.find(c=>c.kind==='tower').anchor,fireX:hearth.fireX,fireY:hearth.y+24};
   ctx.clearRect(0,0,width,height);paintScene(ctx,previousKind,sceneArgs);ctx.save();ctx.globalAlpha=smooth(sceneFade);paintScene(ctx,sceneKind,sceneArgs);ctx.restore();
   if(['cave','hearth'].includes(sample.token.kind)){
     const x=hearth.fireX-cameraX,y=hearth.y-cameraY+floor;
     if(sample.token.kind==='hearth'){
-      ctx.fillStyle='#d2d5c6';ctx.beginPath();ctx.moveTo(x-190,y+34);ctx.lineTo(x+160,y+34);ctx.lineTo(x+210,height);ctx.lineTo(x-230,height);ctx.closePath();ctx.fill();
-      stroke(ctx,[[x-190,y+34],[x+160,y+34]],'#a8b3a0',1.2);
+      ctx.fillStyle='#d2d5c6';ctx.beginPath();ctx.moveTo(x-190,y+5);ctx.lineTo(x+160,y+5);ctx.lineTo(x+210,height);ctx.lineTo(x-230,height);ctx.closePath();ctx.fill();
+      stroke(ctx,[[x-190,y+5],[x+160,y+5]],'#a8b3a0',1.2);
     }
-    drawCampfire(ctx,x,y+24,reduced?0:time,reduced);
+    drawCampfire(ctx,x,y+5,reduced?0:time,reduced);
   }
+  if(sample.token.kind==='sky'){
+    const x=track.tokens[sky.stop].endX-cameraX,y=sky.y-cameraY+floor;
+    ctx.fillStyle='#cbd8b5';ctx.beginPath();ctx.moveTo(x-130,y+5);ctx.lineTo(x+130,y+5);ctx.lineTo(x+230,height);ctx.lineTo(x-250,height);ctx.closePath();ctx.fill();
+    stroke(ctx,[[x-130,y+5],[x+130,y+5]],'#a9bb97',1.2);
+    if(sunAge>=0)drawSkyLantern(ctx,{origin:[sunOrigin.x-cameraX,sunOrigin.y-cameraY+floor],target:[sky.skyX-cameraX-(width<550?14:0),sky.y-cameraY+floor-185],age:sunAge,time:reduced?0:time,width,height,reduced});
+  }
+  canvas.dataset.sunPhase=sun.phase;
   canvas.dataset.lanternLit=String(lit>.95);
   drawWords(sample);drawCharacter(sample);
   for(const p of particles){ctx.globalAlpha=1-p.age/.75;ctx.fillStyle='#dca56c';if(p.letter){ctx.font='17px "Space Mono",monospace';ctx.fillText(p.letter,p.x-cameraX,p.y-cameraY+floor);}else stroke(ctx,[[p.x-cameraX,p.y-cameraY+floor],[p.x-cameraX-p.vx*.04,p.y-cameraY+floor-p.vy*.04]],'#dda569',1.5);}ctx.globalAlpha=1;
   if(!paused&&mode==='playing'){
-    status(sample.token.kind==='hearth'?(lit>.95?'A little light to keep':'Warmth in the stone'):sample.token.kind==='cave'?'Into the quiet':sample.token.kind==='tower'?'Past the old watchtower':'Up the mountain');
+    status(sample.token.kind==='sky'?(sunAge<0?'A light for the heavens':sun.phase==='day'?'Morning returns':'An ember becomes the sun'):sample.token.kind==='hearth'?(lit>.95?'A little light to keep':'Warmth in the stone'):sample.token.kind==='cave'?'Into the quiet':sample.token.kind==='tower'?'Past the old watchtower':'Up the mountain');
   }
   if(now-lastStats>500){if(mode!=='complete')stats();lastStats=now;}
   requestAnimationFrame(frame);

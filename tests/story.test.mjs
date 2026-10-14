@@ -6,10 +6,10 @@ import {jumpPose,jumpLandingPose,carryPose} from '../dist/story-motion.js';
 import {jumpLift,sampleLeap,leapDuration,typingFlightRate,visibleWords} from '../dist/leap.js';
 const track=createTrack(word=>word.length*17);
 const near=(a,b)=>assert.ok(Math.abs(a-b)<.001,`${a} differs from ${b}`);
-test('the five-scene story ends with lighting a lantern in a cave, with no dragon or numbered steps',()=>{
-  assert.equal(track.chapters.length,5);assert.ok(track.total>100);
+test('the six-scene story lights the lantern in the cave and hangs its ember in the sky',()=>{
+  assert.equal(track.chapters.length,6);assert.ok(track.total>100);
   assert.equal(track.tokens.map(t=>t.word).join(' '),STORY.chapters.map(c=>c.text).join(' '));
-  assert.deepEqual(track.chapters.map(c=>c.kind),['forest','bridge','tower','cave','hearth']);
+  assert.deepEqual(track.chapters.map(c=>c.kind),['forest','bridge','tower','cave','hearth','sky']);
   assert.ok(!track.tokens.some(t=>/^[123]$/.test(t.word)||/dragon|sword/.test(t.word)));
   for(let i=1;i<track.total;i++)assert.ok(track.tokens[i].y<=track.tokens[i-1].y+.001);
 });
@@ -17,7 +17,7 @@ test('only punctuation creates compact jump gaps; numbers and plain words stay c
   assert.equal(punctuationJump('word.'),'single');assert.equal(punctuationJump('word,'),'single');
   for(const word of ['jumped','1','2','3','plain'])assert.equal(punctuationJump(word),null);
   for(let i=1;i<track.total;i++){
-    const t=track.tokens[i],previous=track.tokens[i-1];assert.equal(t.jumpType,punctuationJump(previous.word));
+    const t=track.tokens[i],previous=track.tokens[i-1];assert.equal(t.jumpType,t.stationary?null:punctuationJump(previous.word,!!previous.stationary));
     if(t.stationary)continue;
     assert.equal(t.x-previous.endX,t.jumpType?40:22);
     if(!t.jump){const before=sampleTrack(track,i-1e-7),after=sampleTrack(track,i+1e-7);near(before.x,after.x);near(before.y,after.y);}
@@ -66,7 +66,7 @@ test('the active word is rendered at scene changes and at the fire, independent 
   assert.deepEqual(visibleWords(track,track.total).map(v=>v.index),[track.total-1]);
 });
 test('the fire scene stays on one spot, with a checkpoint at each chapter',()=>{
-  const scene=track.chapters.at(-1),positions=track.tokens.slice(scene.stop,scene.end).map(t=>t.endX);
+  const scene=track.chapters.find(c=>c.kind==='hearth'),positions=track.tokens.slice(scene.stop,scene.end).map(t=>t.endX);
   assert.equal(new Set(positions).size,1);
   for(let i=0;i<track.total;i++)assert.equal(checkpoint(track,i),track.chapters[track.tokens[i].chapter].start);
 });
