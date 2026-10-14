@@ -13,8 +13,14 @@ let wordsTraveled=0, falls=0, attemptedChars=0, correctChars=0, elapsed=0;
 let best=0, started=false, soundEnabled=false, audio=null, particles=[];
 let storyComplete=false, lastStats=0, feedbackUntil=0, mismatch=false;
 let runWeight=0,motionTime=0,renderedPose=idlePose(0),transitionPose=renderedPose;
-let pace=0,gaitMix=0;
+let pace=0,gaitMix=0,recoverySpeed=1;
+let minimumAccuracy=85,storyElapsed=0,storyStarted=false;
 try { best=Number(localStorage.getItem('typerun-best')||0)||0; } catch {}
+try {
+  const saved=localStorage.getItem('typerun-minimum-accuracy');
+  if(saved!==null&&Number.isFinite(Number(saved)))minimumAccuracy=Math.max(0,Math.min(100,Math.round(Number(saved))));
+} catch {}
+const GRACE_SECONDS=5;
 const GAP=19, LEVEL_HEIGHT=365;
 const mix=(a,b,t)=>a+(b-a)*t;
 const ease=(rate,dt)=>1-Math.exp(-rate*dt);
@@ -51,10 +57,33 @@ function metadata(){
   $('story-text').textContent=current().story.text;
   input.placeholder=expected();
 }
+function storyAccuracy(){
+  let correct=correctChars;
+  for(let i=0;i<typed.length;i++)if(typed[i].toLowerCase()===expected()[i]?.toLowerCase())correct++;
+  const attempted=attemptedChars+typed.length;
+  return attempted?correct/attempted*100:100;
+}
+function accuracyControls(){
+  $('minimum-accuracy').value=minimumAccuracy;
+  $('minimum-accuracy-value').textContent=`${minimumAccuracy}%`;
+  $('minimum-accuracy').setAttribute('aria-valuetext',`${minimumAccuracy} percent minimum accuracy`);
+  $('accuracy-grace').textContent=minimumAccuracy===100?'100% accuracy · no grace period':!storyStarted?'5-second grace from your first keystroke':storyElapsed<GRACE_SECONDS?`Grace · ${(GRACE_SECONDS-storyElapsed).toFixed(1)}s left`:`Keep at least ${minimumAccuracy}% accuracy`;
+}
+function checkAccuracy(){
+  if(paused||!canType()||!storyStarted||(minimumAccuracy<100&&storyElapsed+1e-9<GRACE_SECONDS)||storyAccuracy()+1e-9>=minimumAccuracy)return false;
+  feedback(`Accuracy fell below ${minimumAccuracy}%. Down to a fresh story!`,'error');
+  falls++;beginTransition(false);stats();return true;
+}
+function setMinimumAccuracy(){
+  minimumAccuracy=clamp(Math.round(Number($('minimum-accuracy').value)||0),0,100);
+  try{localStorage.setItem('typerun-minimum-accuracy',String(minimumAccuracy));}catch{}
+  accuracyControls();checkAccuracy();
+}
 function stats(){
   const wpm=elapsed>0?Math.round(wordsTraveled/(elapsed/60)):0;
   $('wpm').textContent=wpm;
-  $('accuracy').innerHTML=`${attemptedChars?Math.round(correctChars/attemptedChars*100):100}<span class="unit">%</span>`;
+  $('accuracy').innerHTML=`${Math.floor(storyAccuracy()*10)/10}<span class="unit">%</span>`;
+  accuracyControls();
   $('distance').textContent=wordsTraveled;
   if(wordsTraveled>=10&&wpm>best){best=wpm;try{localStorage.setItem('typerun-best',String(best));}catch{}}
   $('session-note').innerHTML=`${falls} ${falls===1?'fall':'falls'} <b>·</b> best ${best} wpm`;
@@ -72,10 +101,14 @@ function tone(frequency,duration=.08,type='sine',volume=.03){
 }
 function start(){
   if(!started){started=true;$('start-hint').style.opacity='0';}
+  storyStarted=true;
   if(mode==='ready')mode='playing';
 }
+function canType(){return ['ready','playing','stumble','splat','rise'].includes(mode);}
+function recovering(){return mode==='splat'||mode==='rise';}
+function hurryRecovery(){if(recovering())recoverySpeed=Math.min(5,recoverySpeed+1);}
 function onInput(){
-  if(paused||!['ready','playing','stumble'].includes(mode)){input.value=typed;return;}
+  if(paused||!canType()){input.value=typed;return;}
   const value=input.value;
   if(/\s/.test(value)){
     const parts=value.trim().split(/\s+/);typed=parts[0]||'';input.value=typed;
@@ -89,34 +122,35 @@ function onInput(){
   targetX=wordX()+prefix*charWidth;
   mismatch=prefix<typed.length;
   if(growing){
+    hurryRecovery();
     lastKey=performance.now();
     if(!mismatch)tone(350+(wordIndex%6)*35,.035,'sine',.012);
   }
   if(mismatch)feedback('Finish the word, or use backspace to fix it.','warn');
   else if(!feedbackUntil)feedback('Keep going. Press space to finish the word.');
+  if(!checkAccuracy())stats();
 }
 function scoreWord(value,word){
   attemptedChars+=Math.max(value.length,word.length);
   for(let i=0;i<Math.min(value.length,word.length);i++)if(value[i].toLowerCase()===word[i].toLowerCase())correctChars++;
 }
 function commit(){
-  if(paused||!['ready','playing','stumble'].includes(mode))return;
+  if(paused||!canType())return;
   if(!typed.length){feedback('Type the next word first.','warn',1400);return;}
+  hurryRecovery();
   start();const word=expected(), result=classifyWord(typed,word);
   scoreWord(typed,word);
-  if(result==='fall'){
-    feedback(`“${typed}” missed “${word}”. Down to a new story!`,'error');
-    falls++;beginTransition(false);stats();return;
-  }
-  wordsTraveled++;wordIndex++;typed='';input.value='';mismatch=false;
+  typed='';input.value='';mismatch=false;
+  if(checkAccuracy())return;
+  wordsTraveled++;wordIndex++;
   if(wordIndex>=current().words.length){
     feedback('Story complete! There is always another adventure.','',2200);
     beginTransition(true);stats();return;
   }
   targetX=wordX();lastKey=performance.now();input.placeholder=expected();
-  if(result==='stumble'){
-    transitionPose=renderedPose;
-    mode='stumble';animationTime=0;feedback('A little typo. A little trip. Keep going!','warn',1600);
+  if(result!=='correct'){
+    if(!recovering()){transitionPose=renderedPose;mode='stumble';animationTime=0;}
+    feedback(storyElapsed<GRACE_SECONDS&&storyAccuracy()<minimumAccuracy?'Use your five-second grace to bring accuracy back up.':'A little typo. A little trip. Keep going!','warn',1600);
     tone(180,.13,'triangle',.04);status('Watch your step');
   }else if(mode!=='stumble'){
     feedback('Keep going. Press space to finish the word.');status('Finding your flow');
@@ -134,21 +168,28 @@ function beginTransition(complete){
     tone(95,.4,'triangle',.08);
   }else{tone(660,.2,'sine',.04);}
 }
-function finishTransition(){
+function landTransition(){
   level++;wordIndex=0;typed='';input.value='';mismatch=false;
+  correctChars=0;attemptedChars=0;storyElapsed=0;storyStarted=false;
   targetX=wordX();runnerX=targetX;runnerY=floorY+level*LEVEL_HEIGHT;
-  mode='playing';animationTime=0;storyComplete=false;metadata();input.disabled=false;
+  mode='splat';animationTime=0;recoverySpeed=1;metadata();input.disabled=paused;
   velocity=0;runWeight=0;pace=0;gaitMix=0;
-  feedback('A fresh story. Take your first step.','',2000);status('Back on your feet');
+  feedback('A fresh story. Keep typing to spring back up.','',2000);status('Type to get back up');
+  stats();
   if(!paused&&!$('help-dialog').open)input.focus({preventScroll:true});
+}
+function finishRecovery(){
+  mode='playing';animationTime=0;storyComplete=false;recoverySpeed=1;
+  status('Back on your feet');
 }
 function reset(){
   level=0;wordIndex=0;typed='';mode='ready';paused=false;started=false;
   wordsTraveled=0;falls=0;correctChars=0;attemptedChars=0;elapsed=0;
+  storyElapsed=0;storyStarted=false;
   cameraX=0;cameraY=0;runnerX=95;runnerY=floorY;targetX=95;
   gait=0;velocity=0;lastKey=0;particles=[];animationTime=0;storyComplete=false;mismatch=false;
   runWeight=0;motionTime=0;renderedPose=idlePose(0);transitionPose=renderedPose;
-  pace=0;gaitMix=0;
+  pace=0;gaitMix=0;recoverySpeed=1;
   levels=[makeLevel(0)];input.value='';input.disabled=false;
   $('pause-overlay').hidden=true;$('start-hint').style.opacity='1';
   $('pause').innerHTML='<kbd>esc</kbd> pause';
@@ -158,7 +199,7 @@ function setPause(value){
   if(paused===value)return;paused=value;
   $('pause-overlay').hidden=!value;
   $('pause').innerHTML=`<kbd>esc</kbd> ${value?'resume':'pause'}`;
-  input.disabled=value||['falling','splat','rise'].includes(mode);
+  input.disabled=value||mode==='falling';
   velocity=0;lastKey=0;
   status(value?'Paused':started?'Your story continues':'Ready when you are');
   if(!value&&!input.disabled)input.focus({preventScroll:true});
@@ -176,7 +217,10 @@ function drawRunner(){
   if(mode==='stumble')pose=tripPose(transitionPose,base,animationTime/.82);
   else if(mode==='falling')pose=fallPose(transitionPose,animationTime/(reducedMotion?.4:.8),reducedMotion);
   else if(mode==='splat')pose=landPose(transitionPose,animationTime/.32,storyComplete);
-  else if(mode==='rise')pose=risePose(animationTime/.72,idleTime,storyComplete);
+  else if(mode==='rise'){
+    const p=clamp(animationTime/.72,0,1);
+    pose=blendPose(risePose(p,idleTime,storyComplete),base,clamp((p-.68)/.32,0,1));
+  }
   if(!paused)renderedPose=pose;
   ctx.save();ctx.translate(runnerX-cameraX,runnerY-cameraY);
   const scale=width<550?.87:1;ctx.scale(scale,scale);
@@ -198,7 +242,7 @@ function drawStories(){
     for(let i=0;i<l.words.length;i++){
       const w=l.words[i],x=l.origin+w.x-cameraX;
       if(x+w.width<-40||x>width+40)continue;
-      const active=n===level && !['falling','splat','rise'].includes(mode);
+      const active=n===level && mode!=='falling';
       const completed=n<level||(n===level&&i<wordIndex);
       if(n===level&&i===wordIndex&&mode==='falling'&&!storyComplete)continue;
       ctx.fillStyle=completed?'#99ad93':active&&i===wordIndex?ink:'#b2bdac';
@@ -222,19 +266,22 @@ function frame(now){
   const dt=Math.min((now-(lastTime||now))/1000,.04);lastTime=now;
   if(!paused){
     motionTime+=dt;
-    if(started&&['playing','stumble'].includes(mode))elapsed+=dt;
+    // Freeze WPM while airborne; resume at impact when typing is available again.
+    if(started&&canType())elapsed+=dt;
+    if(storyStarted&&canType()){storyElapsed+=dt;checkAccuracy();}
     if(mode==='stumble'){
       animationTime+=dt;if(animationTime>.82){mode='playing';animationTime=0;status('Finding your flow');}
     }
     if(mode==='falling'){
       animationTime+=dt;const duration=reducedMotion?.4:.8, p=clamp(animationTime/duration,0,1);
       runnerY=fallFrom+LEVEL_HEIGHT*p*p-(storyComplete&&!reducedMotion?Math.sin(p*Math.PI)*65:0);
-      if(p>=1){transitionPose=fallPose(transitionPose,1,reducedMotion);mode='splat';animationTime=0;runWeight=0;tone(60,.14,'triangle',.07);}
+      if(p>=1){transitionPose=fallPose(transitionPose,1,reducedMotion);landTransition();tone(60,.14,'triangle',.07);}
     }else if(mode==='splat'){
-      animationTime+=dt;if(animationTime>.32){mode='rise';animationTime=0;}
+      animationTime+=dt*recoverySpeed;if(animationTime>.32){mode='rise';animationTime=0;}
     }else if(mode==='rise'){
-      animationTime+=dt;if(animationTime>.72)finishTransition();
-    }else{
+      animationTime+=dt*recoverySpeed;if(animationTime>.72)finishRecovery();
+    }
+    if(mode!=='falling'){
       const previousX=runnerX,travel=advanceTravel(runnerX,velocity,targetX,dt);
       runnerX=travel.position;velocity=travel.velocity;runnerY=floorY+level*LEVEL_HEIGHT;
       // Average travel over several keystrokes so one tap cannot switch into a sprint.
@@ -250,7 +297,7 @@ function frame(now){
     cameraY=mix(cameraY,runnerY-floorY,ease(reducedMotion?30:5.5,dt));
     particles.forEach(p=>{p.age+=dt;p.vy+=650*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;});
     particles=particles.filter(p=>p.age<1.4);
-    if(feedbackUntil&&now>feedbackUntil){feedbackUntil=0;if(['ready','playing','stumble'].includes(mode))feedback('Keep going. Press space to finish the word.');}
+    if(feedbackUntil&&now>feedbackUntil){feedbackUntil=0;if(canType())feedback('Keep going. Press space to finish the word.');}
   }
   ctx.clearRect(0,0,width,height);ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
   // Tiny registration marks echo an animation canvas without adding scenery.
@@ -263,6 +310,7 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 input.addEventListener('input',onInput);
+$('minimum-accuracy').addEventListener('input',setMinimumAccuracy);
 input.addEventListener('keydown',e=>{
   if((e.key===' '||e.key==='Enter')&&!e.isComposing){e.preventDefault();commit();}
 });

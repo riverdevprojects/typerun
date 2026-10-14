@@ -10,8 +10,9 @@ Run `node preview.mjs`, then open http://127.0.0.1:5173. No installation or buil
 
 - Type the displayed story one word at a time. Space or Enter commits a word; Backspace lets you correct it first.
 - Correct characters advance the runner. Gait follows typing cadence and stops when typing stops.
-- Familiar misspellings and adjacent letter swaps trigger a recoverable trip. Other submitted errors break the floor and drop the runner onto another story.
-- The camera follows falls with a delay; the runner lands, gets up, and typing resumes.
+- Mistakes trigger a recoverable trip while story accuracy stays at or above the chosen minimum. Falling below the minimum drops the runner onto another story.
+- The minimum-accuracy slider ranges from 0 to 100 percent, defaults to 85, and saves its value locally. Each story gives five seconds from its first keystroke to recover from early mistakes. At 100 percent there is no grace: the first mistake causes an immediate fall.
+- Accuracy and grace reset on landing. Typing resumes at impact and speeds up the get-up animation; words and partial input entered during recovery retain their progress.
 - Eight original stories rotate. Finishing a story advances without counting a fall.
 - Escape pauses; the help dialog and hiding the page also pause gameplay. Restart resets the session.
 - Optional synthesized sound, word speed, character accuracy, distance, fall count, and a personal best stored on this device. Best speed starts recording after ten accepted words.
@@ -25,4 +26,4 @@ The character has a relaxed idle with breathing and separated arms. Slow typing 
 
 Idle breathing has a 3.8-second cycle: the head and shoulders rise gently on the inhale, relaxed hands follow with a slight delay, and the feet remain planted. Pausing freezes the pose; reduced motion holds a still idle.
 
-Word mistakes are classified on submission to distinguish a common typo such as `teh` from a substantial error. Capitalization is flexible; punctuation must match. Accuracy compares submitted character positions, including errors on failed words. Speed uses accepted words over elapsed play time, excluding explicit pauses and fall animations.
+Capitalization is flexible; punctuation must match. Story accuracy compares submitted character positions plus the current typed letters. Missing and extra submitted letters count as errors; Backspace can correct the current word. Meeting the minimum exactly is safe. After the five-second grace, accuracy below the minimum triggers a fall even if typing stops. Pause freezes the grace clock. Speed uses accepted words over elapsed play time, excluding explicit pauses and airborne falls, and resumes at impact when typing unlocks.

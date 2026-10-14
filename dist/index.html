@@ -19,10 +19,15 @@
         <div><div class="eyebrow"><span class="little-line"></span> A STORY UNDER YOUR FEET</div><h1>Find your <em>flow.</em></h1><p>Keep typing. Keep moving. See where the story takes you.</p></div>
         <div class="stats" aria-label="Session statistics">
           <div><span id="wpm">0</span><label>WORDS / MIN</label></div>
-          <div><span id="accuracy">100<span class="unit">%</span></span><label>ACCURACY</label></div>
+          <div><span id="accuracy">100<span class="unit">%</span></span><label>STORY ACCURACY</label></div>
           <div><span id="distance">0</span><label>WORDS TRAVELED</label></div>
         </div>
       </section>
+      <div class="accuracy-settings">
+        <div class="accuracy-setting-label"><label for="minimum-accuracy">Minimum accuracy</label><output id="minimum-accuracy-value" for="minimum-accuracy">85%</output></div>
+        <input id="minimum-accuracy" type="range" min="0" max="100" step="1" value="85" aria-describedby="accuracy-grace">
+        <span id="accuracy-grace">5-second grace from your first keystroke</span>
+      </div>
       <section class="game-card" aria-label="Typing game">
         <div class="stage-meta"><div><span class="story-number" id="story-number">01</span><span id="story-title">The door in the woods</span></div><div id="state-label"><span class="status-dot"></span> Ready when you are</div></div>
         <div class="canvas-wrap" id="canvas-wrap"><p class="sr-only" id="story-text"></p><canvas id="stage" aria-label="A stick figure runs across the story as you type."></canvas><div class="start-hint" id="start-hint"><span class="hint-arrow">↳</span> The adventure starts with you.<small>Click here and start typing.</small></div><div class="pause-overlay" id="pause-overlay" hidden><strong>Take a breath.</strong><span>Your story will be right here.</span><button class="primary" id="resume">Keep running <span>↗</span></button></div></div>
@@ -32,11 +37,11 @@
           <div class="feedback-line"><span id="feedback" role="status" aria-live="polite">Type the story above. Press space after each word.</span><button id="restart" class="restart" title="Restart this session">↻ <span>Start over</span></button></div>
         </div>
       </section>
-      <section class="below-stage"><div class="rules"><span><i class="rule-dot green"></i>Your pace, his pace</span><span><i class="rule-dot amber"></i>Little typo? A little trip.</span><span><i class="rule-dot gray"></i>Big mistake? A new story.</span></div><button class="pause-button" id="pause"><kbd>esc</kbd> pause</button></section>
+      <section class="below-stage"><div class="rules"><span><i class="rule-dot green"></i>Your pace, his pace</span><span><i class="rule-dot amber"></i>5 seconds to find your rhythm</span><span><i class="rule-dot gray"></i>Low accuracy? A new story.</span></div><button class="pause-button" id="pause"><kbd>esc</kbd> pause</button></section>
       <footer><span>A small adventure, one word at a time.</span><span id="session-note">0 falls <b>·</b> best 0 wpm</span></footer>
     </main>
   </div>
-  <dialog id="help-dialog"><button class="dialog-close" id="close-help" aria-label="Close instructions">×</button><div class="eyebrow">WELCOME TO TYPERUN</div><h2>Words become<br>your way forward.</h2><p>Type the story from left to right. The little runner follows your keystrokes: faster typing, faster running. Stop typing and he stops too.</p><div class="help-rule"><span>01</span><p><strong>Space finishes a word.</strong> Backspace fixes it before you move on. Capitalization is flexible; punctuation follows the story.</p></div><div class="help-rule"><span>02</span><p><strong>Some mistakes are a stumble.</strong> Familiar typos like <code>teh → the</code> and adjacent letter swaps earn a trip, then you keep going.</p></div><div class="help-rule"><span>03</span><p><strong>Other mistakes open the floor.</strong> He drops, splats onto a fresh story, gets back up, and you begin again.</p></div><p class="help-foot">Finish a story to move to the next. Press Escape to pause. Your best speed stays on this device.</p><button class="primary" id="lets-go">Let’s go <span>↗</span></button></dialog>
+  <dialog id="help-dialog"><button class="dialog-close" id="close-help" aria-label="Close instructions">×</button><div class="eyebrow">WELCOME TO TYPERUN</div><h2>Words become<br>your way forward.</h2><p>Type the story from left to right. The little runner follows your keystrokes: faster typing, faster running. Stop typing and he stops too.</p><div class="help-rule"><span>01</span><p><strong>Space finishes a word.</strong> Backspace fixes it before you move on. Capitalization is flexible; punctuation follows the story.</p></div><div class="help-rule"><span>02</span><p><strong>Choose your minimum accuracy.</strong> Use the slider to set the accuracy you need to keep. Mistakes can trip you, but you keep moving while your story accuracy meets the minimum.</p></div><div class="help-rule"><span>03</span><p><strong>Five seconds to find your rhythm.</strong> Each story gives you five seconds from your first keystroke to recover from early mistakes. Once that grace ends, accuracy below your minimum opens the floor. A new story resets your accuracy and grace. At 100%, any mistake causes an immediate fall, with no grace period.</p></div><p class="help-foot">Finish a story to move to the next. Press Escape to pause. Your best speed stays on this device.</p><button class="primary" id="lets-go">Let’s go <span>↗</span></button></dialog>
   <script type="module" src="game.js"></script>
 </body>
 </html>
