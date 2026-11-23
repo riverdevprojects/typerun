@@ -263,7 +263,12 @@ function back(){
 }
 function menuKey(e){
   if(e.key==='Escape'){if(e.isComposing)return;e.preventDefault();if(!e.repeat){if(dialog.open)back();else openMenu();}return;}
-  if(!dialog.open)return;
+  if(!dialog.open){
+    if(e.key==='Tab'&&!e.shiftKey&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&!e.isComposing){
+      e.preventDefault();if(!e.repeat){apply('restart');if(!input.disabled)focusTyping();}
+    }
+    return;
+  }
   if(e.repeat&&(e.key==='Enter'||e.key===' ')){e.preventDefault();return;}
   if(e.key!=='Tab')return;
   const items=Array.from($(view+'-view').querySelectorAll('button,input')).filter(el=>!el.disabled&&(el.type!=='radio'||el.checked));
