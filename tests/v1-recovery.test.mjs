@@ -6,30 +6,33 @@ import * as engine from '../dist/engine.js';
 import * as motion from '../dist/motion.js';
 
 // Run the actual game with a deterministic clock and lightweight DOM/canvas.
-function game(reduced=false){
+function game(reduced=false,storage=new Map()){
   const elements=new Map();
   const ctx=new Proxy({measureText:w=>({width:w.length*17.4}),createLinearGradient:()=>({addColorStop(){}})},
     {get:(object,key)=>object[key]??(()=>{})});
   const element=id=>{
-    if(!elements.has(id))elements.set(id,{value:'',disabled:false,style:{},open:false,
+    if(!elements.has(id))elements.set(id,{value:'',disabled:false,style:{},open:false,listeners:{},
       getContext:()=>ctx,getBoundingClientRect:()=>({width:1000,height:326}),
-      addEventListener(){},append(){},focus(){this.focused=true;},setAttribute(){}});
+      addEventListener(name,fn){this.listeners[name]=fn;},append(){},focus(){this.focused=true;},setAttribute(){}});
     return elements.get(id);
   };
-  let now=1000;
+  let now=0;
   const context=vm.createContext({...engine,...motion,console,Math,
     document:{getElementById:element,createTextNode:t=>t,addEventListener(){},fonts:{ready:Promise.resolve()}},
     matchMedia:()=>({matches:reduced}),devicePixelRatio:1,
-    localStorage:{getItem:()=>null,setItem(){}},performance:{now:()=>now},
+    localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},performance:{now:()=>now},
     ResizeObserver:class{observe(){}},requestAnimationFrame(){}});
   const source=readFileSync(new URL('../dist/game.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'');
   vm.runInContext(source,context);
   const run=code=>vm.runInContext(code,context);
-  const step=()=>{now+=10;run(`frame(${now})`);};
+  const wait=ms=>{now+=ms;};
+  const step=(ms=10)=>{wait(ms);run(`frame(${now})`);};
   const until=condition=>{for(let i=0;i<1000&&!run(condition);i++)step();assert.ok(run(condition),condition);};
   const type=value=>{element('typing').value=value;run('onInput()');};
-  const fall=()=>{type('wrong');run('commit()');until("mode==='splat'");};
-  return {run,step,until,type,fall,input:element('typing'),element};
+  const submit=value=>{type(value);run('commit()');};
+  const fall=()=>{submit('wrong');until("mode==='splat'");};
+  const toggle=()=>element('streak-mode').listeners.click();
+  return {run,step,wait,until,type,submit,fall,toggle,input:element('typing'),element};
 }
 
 test('v1 enables and focuses the fresh story at impact, before recovery ends',()=>{
@@ -94,7 +97,8 @@ test('WPM stays frozen throughout a fall and resumes when input unlocks at impac
       assert.equal(g.element('wpm').textContent,wpm);
     }
     assert.equal(g.input.disabled,false);
-    for(let i=0;i<20;i++)g.step();
+    // At one correct word, allow enough time for rounded WPM to change.
+    for(let i=0;i<100;i++)g.step();
     g.run('stats()');
     assert.ok(g.run('elapsed')>elapsed);
     assert.ok(g.element('wpm').textContent<wpm);
@@ -173,4 +177,44 @@ test('99 percent still gives the full grace period',()=>{
   g.type('xxx');g.run('commit()');
   for(let i=0;i<499;i++)g.step();
   assert.equal(g.run('falls'),0);g.step();assert.equal(g.run('falls'),1);
+});
+
+test('switching restarts and persists the mode without losing the accuracy setting',()=>{
+  const storage=new Map(),g=game(false,storage);
+  assert.equal(g.run('streakMode'),false);
+  g.element('minimum-accuracy').value=100;g.run('setMinimumAccuracy()');g.submit('the');
+  g.toggle();assert.equal(g.run('wordsTraveled'),0);assert.equal(g.element('minimum-accuracy').disabled,true);
+  g.submit('teh');g.run('reset()');assert.equal(g.run('wrongStreak'),0);
+  const fresh=game(false,storage);assert.equal(fresh.run('streakMode'),true);
+  fresh.toggle();assert.equal(fresh.element('minimum-accuracy').disabled,false);fresh.type('x');assert.equal(fresh.run('falls'),1);
+});
+
+test('streak ignores live mismatches and counts every wrong submission, including typos',()=>{
+  const g=game();g.toggle();g.type('xxx');g.step(7000);assert.equal(g.run('falls'),0);
+  g.submit('teh');assert.equal(g.run('mode'),'stumble');g.submit('xxx');g.submit('AT');
+  g.submit('teh');g.submit('xxx');assert.equal(g.run('falls'),0);
+  g.submit('fo');assert.equal(g.run('falls'),1);assert.equal(g.run('wordsTraveled'),5);
+  g.until("mode==='splat'");g.submit('teh');assert.equal(g.run('wrongStreak'),1);assert.equal(g.run('wordIndex'),1);
+});
+
+test('WPM and versioned best use correct submissions, not distance or character count',()=>{
+  const storage=new Map([['typerun-best','99999'],['typerun-best-v2','Infinity']]);
+  const g=game(false,storage);g.toggle();g.submit('teh');g.type('door');g.wait(60000);g.run('commit()');
+  for(let i=1;i<9;i++)g.submit(g.run('expected()'));
+  assert.equal(g.element('distance').textContent,10);assert.equal(g.element('wpm').textContent,9);assert.equal(g.run('best'),0);
+  g.submit(g.run('expected()'));assert.equal(g.element('wpm').textContent,10);assert.equal(storage.get('typerun-best-v2'),'10');
+  assert.equal(game(false,storage).run('best'),10);
+});
+
+test('zero timestamp and slow frames: only animation time is capped',()=>{
+  const g=game();g.step(0);g.type('x');g.step(4999);
+  assert.equal(g.run('elapsed'),4.999);assert.equal(g.run('motionTime'),.04);assert.equal(g.run('falls'),0);
+  g.step(1);assert.equal(g.run('falls'),1);
+});
+
+test('no frames: pause and resume split the interval; late input cannot undo expired grace',()=>{
+  const g=game();g.wait(9000);g.type('x');g.wait(3000);g.run('setPause(true)');
+  assert.equal(g.run('elapsed'),3);g.wait(80000);g.run('setPause(false)');g.wait(2000);g.type('the');
+  assert.equal(g.run('elapsed'),5);assert.equal(g.run('storyElapsed'),5);assert.equal(g.run('mode'),'falling');
+  g.wait(20000);g.until("mode==='splat'");assert.equal(g.run('elapsed'),5);assert.equal(g.run('storyElapsed'),0);
 });

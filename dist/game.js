@@ -6,19 +6,24 @@ const canvas=$('stage'), ctx=canvas.getContext('2d'), input=$('typing');
 const orange='#ed722e', ink='#3b453e';
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 let width=1000, height=326, fontSize=29, charWidth=17.4, floorY=163;
-let cameraX=0, cameraY=0, gait=0, velocity=0, lastTime=0, lastKey=0;
+let cameraX=0, cameraY=0, gait=0, velocity=0, lastTime=null, lastKey=0;
 let levels=[], level=0, wordIndex=0, typed='', mode='ready', paused=false;
-let runnerX=95, runnerY=floorY, targetX=95, animationTime=0, fallFrom=0;
-let wordsTraveled=0, falls=0, attemptedChars=0, correctChars=0, elapsed=0;
+let runnerX=95, runnerY=floorY, targetX=95, animationTime=0, fallFrom=0, fallStartedAt=0;
+let wordsTraveled=0, correctWords=0, falls=0, attemptedChars=0, correctChars=0, elapsed=0;
 let best=0, started=false, soundEnabled=false, audio=null, particles=[];
 let storyComplete=false, lastStats=0, feedbackUntil=0, mismatch=false;
 let runWeight=0,motionTime=0,renderedPose=idlePose(0),transitionPose=renderedPose;
 let pace=0,gaitMix=0,recoverySpeed=1;
 let minimumAccuracy=85,storyElapsed=0,storyStarted=false;
-try { best=Number(localStorage.getItem('typerun-best')||0)||0; } catch {}
+const BEST_KEY='typerun-best-v2', MODE_KEY='typerun-consecutive-mistakes';
+const MISTAKE_LIMIT=3;
+let streakMode=false, wrongStreak=0, clockTime=null;
 try {
-  const saved=localStorage.getItem('typerun-minimum-accuracy');
-  if(saved!==null&&Number.isFinite(Number(saved)))minimumAccuracy=Math.max(0,Math.min(100,Math.round(Number(saved))));
+  const saved=Number(localStorage.getItem(BEST_KEY));
+  if(Number.isFinite(saved)&&saved>0)best=saved;
+  streakMode=localStorage.getItem(MODE_KEY)==='true';
+  const minimum=localStorage.getItem('typerun-minimum-accuracy');
+  if(minimum!==null&&Number.isFinite(Number(minimum)))minimumAccuracy=Math.max(0,Math.min(100,Math.round(Number(minimum))));
 } catch {}
 const GRACE_SECONDS=5;
 const GAP=19, LEVEL_HEIGHT=365;
@@ -32,11 +37,14 @@ function size(){
   canvas.width=Math.round(width*ratio); canvas.height=Math.round(height*ratio);
   ctx.setTransform(ratio,0,0,ratio,0,0);
   fontSize=width<550?23:29; ctx.font=`${fontSize}px "Space Mono", Consolas, monospace`;
-  charWidth=ctx.measureText('m').width;floorY=height*.49;
+  charWidth=ctx.measureText('m').width;
+  const floorShift=height*.49-floorY;
+  floorY+=floorShift;
   levels.forEach(l=>l.words=layoutWords(l.story.text,w=>ctx.measureText(w).width,GAP));
-  runnerY=floorY+level*LEVEL_HEIGHT;
-  targetX=wordX()+matchingPrefix(typed,expected())*charWidth;
-  runnerX=targetX;cameraY=level*LEVEL_HEIGHT;
+  runnerY+=floorShift;
+  particles.forEach(p=>{p.y+=floorShift;});
+  if(mode==='falling')fallFrom+=floorShift;
+  else targetX=wordX()+matchingPrefix(typed,expected())*charWidth;
 }
 function makeLevel(n,origin=95){
   const story=STORIES[n%STORIES.length];
@@ -64,28 +72,44 @@ function storyAccuracy(){
   return attempted?correct/attempted*100:100;
 }
 function accuracyControls(){
+  $('streak-mode').setAttribute('aria-pressed',String(streakMode));
+  $('mode-value').textContent=streakMode?'On':'Off';
+  $('minimum-accuracy').disabled=streakMode;
   $('minimum-accuracy').value=minimumAccuracy;
   $('minimum-accuracy-value').textContent=`${minimumAccuracy}%`;
   $('minimum-accuracy').setAttribute('aria-valuetext',`${minimumAccuracy} percent minimum accuracy`);
-  $('accuracy-grace').textContent=minimumAccuracy===100?'100% accuracy · no grace period':!storyStarted?'5-second grace from your first keystroke':storyElapsed<GRACE_SECONDS?`Grace · ${(GRACE_SECONDS-storyElapsed).toFixed(1)}s left`:`Keep at least ${minimumAccuracy}% accuracy`;
+  $('accuracy-grace').textContent=streakMode?`Fall after ${MISTAKE_LIMIT} wrong words in a row. A correct word resets the count.`:minimumAccuracy===100?'100% accuracy · no grace period':!storyStarted?'5-second grace from your first keystroke':storyElapsed<GRACE_SECONDS?`Grace · ${(GRACE_SECONDS-storyElapsed).toFixed(1)}s left`:`Keep at least ${minimumAccuracy}% accuracy`;
+}
+// Charge the interval to the state that owned it. Use the same monotonic clock
+// for events and frames: the RAF timestamp can predate a recent input event.
+function syncClock(){
+  const now=performance.now(), seconds=(now-(clockTime??now))/1000;
+  clockTime=now;
+  if(!paused&&canType()){
+    if(started)elapsed+=seconds;
+    if(storyStarted)storyElapsed+=seconds;
+  }
+}
+function failStory(message){
+  feedback(message,'error');falls++;beginTransition(false);stats();
 }
 function checkAccuracy(){
-  if(paused||!canType()||!storyStarted||(minimumAccuracy<100&&storyElapsed+1e-9<GRACE_SECONDS)||storyAccuracy()+1e-9>=minimumAccuracy)return false;
-  feedback(`Accuracy fell below ${minimumAccuracy}%. Down to a fresh story!`,'error');
-  falls++;beginTransition(false);stats();return true;
+  if(streakMode||paused||!canType()||!storyStarted||(minimumAccuracy<100&&storyElapsed+1e-9<GRACE_SECONDS)||storyAccuracy()+1e-9>=minimumAccuracy)return false;
+  failStory(`Accuracy fell below ${minimumAccuracy}%. Down to a fresh story!`);return true;
 }
 function setMinimumAccuracy(){
+  syncClock();checkAccuracy();
   minimumAccuracy=clamp(Math.round(Number($('minimum-accuracy').value)||0),0,100);
   try{localStorage.setItem('typerun-minimum-accuracy',String(minimumAccuracy));}catch{}
   accuracyControls();checkAccuracy();
 }
 function stats(){
-  const wpm=elapsed>0?Math.round(wordsTraveled/(elapsed/60)):0;
+  const wpm=elapsed>0?Math.round(correctWords/(elapsed/60)):0;
   $('wpm').textContent=wpm;
   $('accuracy').innerHTML=`${Math.floor(storyAccuracy()*10)/10}<span class="unit">%</span>`;
   accuracyControls();
   $('distance').textContent=wordsTraveled;
-  if(wordsTraveled>=10&&wpm>best){best=wpm;try{localStorage.setItem('typerun-best',String(best));}catch{}}
+  if(correctWords>=10&&Number.isFinite(wpm)&&wpm>best){best=wpm;try{localStorage.setItem(BEST_KEY,String(best));}catch{}}
   $('session-note').innerHTML=`${falls} ${falls===1?'fall':'falls'} <b>·</b> best ${best} wpm`;
 }
 function tone(frequency,duration=.08,type='sine',volume=.03){
@@ -95,7 +119,6 @@ function tone(frequency,duration=.08,type='sine',volume=.03){
     if(audio.state==='suspended')audio.resume();
     const osc=audio.createOscillator(), gain=audio.createGain();
     osc.type=type;osc.frequency.value=frequency;gain.gain.setValueAtTime(volume,audio.currentTime);
-    gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);
     osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+duration);
   }catch{}
 }
@@ -108,12 +131,17 @@ function canType(){return ['ready','playing','stumble','splat','rise'].includes(
 function recovering(){return mode==='splat'||mode==='rise';}
 function hurryRecovery(){if(recovering())recoverySpeed=Math.min(5,recoverySpeed+1);}
 function onInput(){
+  syncClock();checkAccuracy();
   if(paused||!canType()){input.value=typed;return;}
-  const value=input.value;
-  if(/\s/.test(value)){
-    const parts=value.trim().split(/\s+/);typed=parts[0]||'';input.value=typed;
-    if(parts.length>1){feedback('One word at a time. Let your fingers do the running.','warn',2000);return;}
-    commit();return;
+  let value=input.value;
+  const submitting=/\s/.test(value);
+  if(submitting){
+    const parts=value.trim().split(/\s+/);
+    if(parts.length>1){
+      input.value=typed;
+      feedback('One word at a time. Let your fingers do the running.','warn',2000);return;
+    }
+    value=parts[0];
   }
   const growing=value.length>typed.length;
   typed=value.slice(0,Math.max(expected().length+14,25));input.value=typed;
@@ -126,21 +154,28 @@ function onInput(){
     lastKey=performance.now();
     if(!mismatch)tone(350+(wordIndex%6)*35,.035,'sine',.012);
   }
+  if(checkAccuracy())return;
+  if(submitting){commit();return;}
   if(mismatch)feedback('Finish the word, or use backspace to fix it.','warn');
   else if(!feedbackUntil)feedback('Keep going. Press space to finish the word.');
-  if(!checkAccuracy())stats();
+  stats();
 }
 function scoreWord(value,word){
   attemptedChars+=Math.max(value.length,word.length);
   for(let i=0;i<Math.min(value.length,word.length);i++)if(value[i].toLowerCase()===word[i].toLowerCase())correctChars++;
 }
 function commit(){
-  if(paused||!canType())return;
+  syncClock();
+  if(paused||!canType()||checkAccuracy())return;
   if(!typed.length){feedback('Type the next word first.','warn',1400);return;}
   hurryRecovery();
   start();const word=expected(), result=classifyWord(typed,word);
   scoreWord(typed,word);
   typed='';input.value='';mismatch=false;
+  if(result==='correct'){correctWords++;wrongStreak=0;}
+  else if(streakMode&&++wrongStreak>=MISTAKE_LIMIT){
+    failStory(`${MISTAKE_LIMIT} wrong words in a row. Down to a fresh story!`);return;
+  }
   if(checkAccuracy())return;
   wordsTraveled++;wordIndex++;
   if(wordIndex>=current().words.length){
@@ -150,7 +185,7 @@ function commit(){
   targetX=wordX();lastKey=performance.now();input.placeholder=expected();
   if(result!=='correct'){
     if(!recovering()){transitionPose=renderedPose;mode='stumble';animationTime=0;}
-    feedback(storyElapsed<GRACE_SECONDS&&storyAccuracy()<minimumAccuracy?'Use your five-second grace to bring accuracy back up.':'A little typo. A little trip. Keep going!','warn',1600);
+    feedback(!streakMode&&storyElapsed<GRACE_SECONDS&&storyAccuracy()<minimumAccuracy?'Use your five-second grace to bring accuracy back up.':'A little typo. A little trip. Keep going!','warn',1600);
     tone(180,.13,'triangle',.04);status('Watch your step');
   }else if(mode!=='stumble'){
     feedback('Keep going. Press space to finish the word.');status('Finding your flow');
@@ -158,7 +193,7 @@ function commit(){
   stats();
 }
 function beginTransition(complete){
-  transitionPose=renderedPose;
+  syncClock();fallStartedAt=clockTime;transitionPose=renderedPose;
   storyComplete=complete;mode='falling';animationTime=0;fallFrom=floorY+level*LEVEL_HEIGHT;
   levels.push(makeLevel(level+1,runnerX));input.disabled=true;velocity=0;
   status(complete?'A story well traveled':'A change of scenery');
@@ -169,6 +204,7 @@ function beginTransition(complete){
   }else{tone(660,.2,'sine',.04);}
 }
 function landTransition(){
+  syncClock();wrongStreak=0;
   level++;wordIndex=0;typed='';input.value='';mismatch=false;
   correctChars=0;attemptedChars=0;storyElapsed=0;storyStarted=false;
   targetX=wordX();runnerX=targetX;runnerY=floorY+level*LEVEL_HEIGHT;
@@ -183,6 +219,7 @@ function finishRecovery(){
   status('Back on your feet');
 }
 function reset(){
+  syncClock();lastTime=null;correctWords=0;wrongStreak=0;
   level=0;wordIndex=0;typed='';mode='ready';paused=false;started=false;
   wordsTraveled=0;falls=0;correctChars=0;attemptedChars=0;elapsed=0;
   storyElapsed=0;storyStarted=false;
@@ -196,7 +233,8 @@ function reset(){
   metadata();stats();status('Ready when you are');feedback('Type the story above. Press space after each word.');input.focus({preventScroll:true});
 }
 function setPause(value){
-  if(paused===value)return;paused=value;
+  if(paused===value)return;
+  syncClock();checkAccuracy();paused=value;lastTime=null;stats();
   $('pause-overlay').hidden=!value;
   $('pause').innerHTML=`<kbd>esc</kbd> ${value?'resume':'pause'}`;
   input.disabled=value||mode==='falling';
@@ -263,17 +301,18 @@ function drawStories(){
   ctx.fillStyle=fade;ctx.fillRect(0,0,width,height);
 }
 function frame(now){
-  const dt=Math.min((now-(lastTime||now))/1000,.04);lastTime=now;
+  const dt=Math.min((now-(lastTime??now))/1000,.04);lastTime=now;
+  syncClock();
   if(!paused){
     motionTime+=dt;
-    // Freeze WPM while airborne; resume at impact when typing is available again.
-    if(started&&canType())elapsed+=dt;
-    if(storyStarted&&canType()){storyElapsed+=dt;checkAccuracy();}
+    checkAccuracy();
     if(mode==='stumble'){
       animationTime+=dt;if(animationTime>.82){mode='playing';animationTime=0;status('Finding your flow');}
     }
     if(mode==='falling'){
-      animationTime+=dt;const duration=reducedMotion?.4:.8, p=clamp(animationTime/duration,0,1);
+      // A fall triggered by input or by this frame did not own the whole frame.
+      animationTime+=Math.min(dt,Math.max(0,(now-fallStartedAt)/1000));
+      const duration=reducedMotion?.4:.8, p=clamp(animationTime/duration,0,1);
       runnerY=fallFrom+LEVEL_HEIGHT*p*p-(storyComplete&&!reducedMotion?Math.sin(p*Math.PI)*65:0);
       if(p>=1){transitionPose=fallPose(transitionPose,1,reducedMotion);landTransition();tone(60,.14,'triangle',.07);}
     }else if(mode==='splat'){
@@ -311,6 +350,11 @@ function frame(now){
 }
 input.addEventListener('input',onInput);
 $('minimum-accuracy').addEventListener('input',setMinimumAccuracy);
+$('streak-mode').addEventListener('click',()=>{
+  streakMode=!streakMode;
+  try{localStorage.setItem(MODE_KEY,String(streakMode));}catch{}
+  reset();
+});
 input.addEventListener('keydown',e=>{
   if((e.key===' '||e.key==='Enter')&&!e.isComposing){e.preventDefault();commit();}
 });
@@ -334,4 +378,3 @@ $('sound').addEventListener('click',()=>{
 new ResizeObserver(size).observe(canvas);
 size();levels=[makeLevel(0)];metadata();stats();requestAnimationFrame(frame);
 document.fonts.ready.then(size);
-
