@@ -1,29 +1,34 @@
 # Typerun
 
-A browser typing game: your keystrokes carry an orange stick figure across the words of a story.
+Type the words under an orange runner’s feet. Your keystrokes set the pace.
 
 ## Run locally
 
-Run `node preview.mjs`, then open http://127.0.0.1:5173. No installation or build step is needed. Run `node --test` for the engine, motion, scoring, clock, and gameplay regression tests. GitHub Actions runs the same command on pushes and pull requests.
+Run `node preview.mjs` and open http://127.0.0.1:5173. No installation or build step is needed. Run `node --test` for engine, motion, gameplay, menu and persistence regressions. GitHub Actions runs the tests on pushes and pull requests.
 
 ## How to play
 
-Type the story one word at a time. Space or Enter submits a word; Backspace lets you fix it first. Capitalization is flexible, but punctuation must match. Correct characters move the runner forward. Finishing a story advances to the next of eight rotating stories without counting a fall.
+Select **Next word** and type the underlined word. Space or Enter submits; Backspace corrects letters before submission. Matching letters move the runner forward. Case is flexible. Pasting and multiword entries are not accepted.
 
-**Consecutive mistakes off (default):** The slider sets the minimum story accuracy from 0 to 100 percent (initially 85). Accuracy compares submitted character positions plus the letters currently typed. Missing and extra submitted letters count as errors. Each story gives five active seconds from its first keystroke to fix early mistakes. After grace, dropping below the minimum causes a fall even if you stop typing; meeting it exactly is safe. At 100 percent there is no grace.
+- **Story** starts at *The door in the woods* and cycles through eight stories. Include punctuation.
+- **Words** draws batches of 50 words from Monkeytype’s English 200 list. Every target is lowercase, with no punctuation or immediate repeat. Finishing a batch, like finishing a story, advances without counting a fall.
 
-**Consecutive mistakes on:** A wrong submission trips the runner. Three wrong submissions in a row cause a fall, including common typos. A correct submission clears the streak. Unsubmitted letters never cause a fall, and the accuracy slider is disabled.
+Press **Esc** or select **Settings** to pause. The same menu contains Game, Fall rule, Minimum accuracy, Sound, help and restart. Tab moves between controls; arrow keys select radio options or adjust the slider. Esc backs out of help or cancels a confirmation. At Settings, Esc or **Resume game** returns to your partial word. Hiding the page during play also opens Settings; coming back does not restart the clock.
 
-Switching modes restarts the session. The mode and slider setting are saved on this device. Landing resets story accuracy, grace, and the mistake streak. Typing resumes at impact and speeds up recovery; words and partial input entered during recovery retain their progress. Escape pauses; opening help or hiding the page during play also pauses the game.
+### Fall rules
+
+**Minimum accuracy** starts at 85%. Accuracy compares character positions in submitted words plus the letters currently typed. Missing and extra submitted letters count as errors. From the first keystroke of each story or batch, you have five active seconds to recover accuracy. After that, dropping below the minimum causes a fall, even mid-word or while idle. Meeting it exactly is safe. At 100% there is no grace; at 0% accuracy never causes a fall. Slider edits save immediately without restarting. A paused game enforces the new minimum on resume.
+
+**Consecutive mistakes** counts submissions, not unsubmitted letters. A mistake trips the runner; three wrong submissions in a row cause a fall. A correct word clears the count. The slider is disabled but keeps its value.
+
+Changing game or fall rule restarts the session, with confirmation after typing begins. Cancel keeps the partial word and settings. Your game, rule, threshold and sound preference stay on this device. Sound starts off. Landing resets accuracy, grace and streak. Input unlocks at impact: typing helps the runner get back up without losing submissions or partial words.
 
 ## Session stats
 
-WPM counts correct submitted story words per active minute, not five-character units. Words traveled measures progress separately: a word you trip over can add distance but not speed. The session clock starts with typing, stops during pauses and airborne transitions, and resumes at impact. Grace starts separately with each story. Both clocks use real active time regardless of frame rate. After ten correct submissions the displayed speed is eligible for a local personal best; records from the former distance-based calculation are not imported.
+WPM counts correct submitted words per active minute, not five-character units. A word the runner trips over can add distance but not speed. The session clock starts with typing, stops during pauses and airborne transitions, and resumes at impact. Grace starts separately on each line. Both clocks use real active time regardless of frame rate. After ten correct submissions, displayed WPM is eligible for a local best. Restarting keeps that record; older distance-based records are not imported.
 
-## Files
+## Files and motion
 
-`dist/` is the deployable static app. `engine.js` contains stories, common-typo classification, and word layout. `game.js` owns input, state transitions, camera, sound, and stats. `motion.js` contains the joint poses, interpolated run cycle, trip/fall/landing/get-up transitions, and critically damped travel. No external application libraries are needed; web fonts have local fallbacks.
+`dist/` is the deployable static root. `engine.js` contains stories, the English 200 list, batch generation, word classification and layout. `game.js` owns input, settings, state transitions, camera, WebAudio beeps and stats. `motion.js` contains joint poses, interpolated gaits, trip/fall/landing/get-up transitions and critically damped travel. Web fonts have local fallbacks; there are no application libraries.
 
-The character has a relaxed idle with breathing and separated arms. Slow typing produces an upright walk with short steps, relaxed arms, and continuous foot contact. Fast typing produces longer running strides, bent arms, forward lean, and airborne phases. Smoothed travel speed blends the two gaits without resetting their shared step phase. Foot travel drives animation speed; moving and standing also blend gradually. Mistake animations start from the displayed pose, and getting up returns continuously to idle. Feet stay above the text; no shadow or platform is drawn over the letters.
-
-Idle breathing has a 3.8-second cycle: the head and shoulders rise gently on the inhale, relaxed hands follow with a slight delay, and the feet remain planted. Pausing freezes the pose; reduced motion holds a still idle.
+The runner breathes on a 3.8-second cycle with planted feet and relaxed hands. Slow travel produces a short upright walk with continuous ground contact; faster travel blends into longer running strides with bent arms, forward lean and airborne phases. Distance drives the shared step phase. Trips and falls begin from the displayed pose; recovery blends back into locomotion. No shadow or platform covers the letters. Pausing freezes the pose. Reduced motion holds a still idle, omits scattered letters and cuts between baselines instead of sweeping the camera.

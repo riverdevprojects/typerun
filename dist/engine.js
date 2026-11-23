@@ -8,11 +8,23 @@ export const STORIES = [
   { title: 'The moving mountain', text: 'one morning, the mountain took a step. cups rattled. birds scattered. the whole village watched as it slowly turned toward the sunrise. you packed a lunch and ran after it. when you finally caught up, a voice rumbled from deep within the stone. would you like to see what lies beyond the clouds?' },
   { title: 'A letter to tomorrow', text: 'you wrote a letter to tomorrow and left it beneath a stone. you asked for rain, for courage, for one more chance. the next day, a letter waited in its place. the paper smelled of grass. the handwriting looked familiar. just keep going, it said. you are closer than you think.' }
 ];
+
+export const WORDS_200 = Object.freeze(`the be of and a to in he have it that for they i with as not on she at by this we you do but from or which one would all will there say who make when can more if no man out other so what time up go about than into could state only new year some take come these know see use get like then first any work now may such give over think most even find day also after way many must look before great back through long where much should well people down own just because good each those feel seem how high too place little world very still nation hand old life tell write become here show house both between need mean call develop under last right move thing general school never same another begin while number part turn real leave might want point form off child few small since against ask late home interest large person end open public follow during present without again hold govern around possible head consider word program problem however lead system set order eye plan run keep face fact group play stand increase early course change help line`.split(' '));
+
+// Sample uniformly from all indices except the last one, without a retry loop.
+export function generateBatch(rng = Math.random, previous = '') {
+  let skip = WORDS_200.indexOf(previous);
+  return Array.from({length: 50}, () => {
+    const pick = Math.floor(rng() * (WORDS_200.length - Number(skip >= 0)));
+    skip = skip >= 0 && pick >= skip ? pick + 1 : pick;
+    return WORDS_200[skip];
+  });
+}
+
 const COMMON = {the:['teh','hte','th'],and:['adn','nad'],you:['yuo','oyu'],your:['yuor'],was:['wsa'],with:['wiht'],that:['taht'],there:['thier','ther'],their:['thier'],from:['form'],friend:['freind'],because:['becuase'],little:['littel'],quiet:['qu iet'],every:['evrey'],through:['throught'],would:['woudl'],could:['coudl'],should:['shoudl'],of:['fo'],to:['ot']};
 export function classifyWord(typed, expected) {
   const a=typed.toLowerCase(), b=expected.toLowerCase();
   if(a===b) return 'correct';
-  // Keep punctuation meaningful. A spelling exception must preserve punctuation.
   const punctuation=/[^a-z0-9]/g;
   if(a.replace(/[a-z0-9]/g,'')!==b.replace(/[a-z0-9]/g,'')) return 'fall';
   const aw=a.replace(punctuation,''), bw=b.replace(punctuation,'');
