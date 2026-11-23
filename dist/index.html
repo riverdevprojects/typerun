@@ -15,7 +15,7 @@
     <div id="canvas-wrap"><canvas id="stage" aria-label="An orange runner follows the underlined word."></canvas><p class="sr" id="story-text"></p></div>
     <div class="dock"><label for="typing">Next word</label><span class="sr" id="target" role="status" aria-atomic="true"></span>
       <input id="typing" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="target direction" placeholder="the">
-      <p id="direction">Type the underlined word. Space or Enter submits it.</p><p id="feedback" role="status"></p>
+      <p id="direction">Type the underlined word. Space or Enter submits it. Tab restarts the session.</p><p id="feedback" role="status"></p>
     </div>
   </section>
   <dl><div><dt>WPM</dt><dd id="wpm">0</dd></div><div><dt id="accuracy-label">Story accuracy</dt><dd id="accuracy">100%</dd></div><div><dt>Words traveled</dt><dd id="distance">0</dd></div></dl>
@@ -31,7 +31,7 @@
     <label class="sound"><input type="checkbox" role="switch" id="sound"> Sound <span id="sound-value" aria-hidden="true">Off</span></label>
     <div class="actions"><button id="help">How to play</button><button id="restart">Restart session…</button></div>
   </div>
-  <div id="help-view" hidden><p>In Story, follow eight stories in order. Capitals are flexible; include punctuation. Words deals 50 lowercase words at a time from Monkeytype’s English 200, without punctuation. Finish either line to advance without a fall.</p><p>Type one word, then press Space or Enter. Backspace corrects it before submission. A matching prefix moves the runner; a wrong submission can trip him.</p><p>Minimum accuracy gives you five active seconds from your first keystroke on each line. After that, even a partial word below the minimum causes a fall. The exact minimum is safe. At 100% there’s no grace; at 0% there are no accuracy falls.</p><p>Consecutive mistakes counts submissions instead. Three wrong in a row cause a fall. A correct word or a new line clears the count.</p><p>Type again at landing to get up faster. Only correct submissions count toward WPM. Pause and airborne time don’t count. After ten correct words your speed can set a local best.</p><button id="back">Back to settings</button></div>
+  <div id="help-view" hidden><p>In Story, follow eight stories in order. Capitals are flexible; include punctuation. Words deals 50 lowercase words at a time from Monkeytype’s English 200, without punctuation. Finish either line to advance without a fall.</p><p>Type one word, then press Space or Enter. Backspace corrects it before submission. During play, Tab restarts the session immediately. A matching prefix moves the runner; a wrong submission can trip him.</p><p>Minimum accuracy gives you five active seconds from your first keystroke on each line. After that, even a partial word below the minimum causes a fall. The exact minimum is safe. At 100% there’s no grace; at 0% there are no accuracy falls.</p><p>Consecutive mistakes counts submissions instead. Three wrong in a row cause a fall. A correct word or a new line clears the count.</p><p>Type again at landing to get up faster. Only correct submissions count toward WPM. Pause and airborne time don’t count. After ten correct words your speed can set a local best.</p><button id="back">Back to settings</button></div>
   <div id="confirm-view" hidden><p id="loss"></p><div class="actions"><button id="cancel">Cancel</button><button id="confirm">Restart session</button></div></div>
 </dialog>
 <script type="module" src="game.js"></script></body></html>

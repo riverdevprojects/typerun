@@ -13,7 +13,7 @@ Select **Next word** and type the underlined word. Space or Enter submits; Backs
 - **Story** starts at *The door in the woods* and cycles through eight stories. Include punctuation.
 - **Words** draws batches of 50 words from Monkeytype’s English 200 list. Every target is lowercase, with no punctuation or immediate repeat. Finishing a batch, like finishing a story, advances without counting a fall.
 
-Press **Esc** or select **Settings** to pause. The same menu contains Game, Fall rule, Minimum accuracy, Sound, help and restart. Tab moves between controls; arrow keys select radio options or adjust the slider. Esc backs out of help or cancels a confirmation. At Settings, Esc or **Resume game** returns to your partial word. Hiding the page during play also opens Settings; coming back does not restart the clock.
+During play, press **Tab** to restart immediately or **Shift+Tab** to move focus backward. Press **Esc** or select **Settings** to pause. The same menu contains Game, Fall rule, Minimum accuracy, Sound, help and restart. In the menu, Tab moves between controls; arrow keys select radio options or adjust the slider. Esc backs out of help or cancels a confirmation. At Settings, Esc or **Resume game** returns to your partial word. Hiding the page during play also opens Settings; coming back does not restart the clock.
 
 ### Fall rules
 
@@ -25,7 +25,7 @@ Changing game or fall rule restarts the session, with confirmation after typing 
 
 ## Session stats
 
-WPM counts correct submitted words per active minute, not five-character units. A word the runner trips over can add distance but not speed. The session clock starts with typing, stops during pauses and airborne transitions, and resumes at impact. Grace starts separately on each line. Both clocks use real active time regardless of frame rate. After ten correct submissions, displayed WPM is eligible for a local best. Restarting keeps that record; older distance-based records are not imported.
+WPM counts correct submitted words per active minute, not five-character units. A word the runner trips over can add distance but not speed. The session clock starts with typing, stops during pauses and airborne transitions, and resumes at impact. Grace starts separately on each line. Both clocks use real active time regardless of frame rate. After ten correct submissions, displayed WPM is eligible for a local best. Tab and the Settings restart button both start you over at story 01 or a fresh batch, keeping your fall rule and local best. The button asks for confirmation; Tab does not. Older distance-based records are not imported.
 
 ## Files and motion
 
